@@ -1,0 +1,8 @@
+__pycache__
+.ruff_cache
+data
+datasets
+tmp
+yuwei_result
+*.sh
+.DS_Store
