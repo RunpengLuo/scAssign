@@ -31,8 +31,9 @@ class SC_Assign:
         assert data_type in ["GEX", "ATAC", "BOTH"]
         assert bin_level in ["seg", "bbc"]
         assert os.path.isdir(prep_dir)
-
-        self.data_type = data_type
+        
+        self.has_atac = data_type in ["ATAC", "BOTH"]
+        self.has_gex = data_type in ["GEX", "BOTH"]
         self.bin_level = bin_level
         self.out_dir = out_dir
 
@@ -60,11 +61,7 @@ class SC_Assign:
 
         ##################################################
         # scATACseq information allele-level, bin by cell
-        self.atac_acounts = None
-        self.atac_bcounts = None
-        self.atac_tcounts = None
-        self.atac_nsnps = None
-        if data_type in ["ATAC", "BOTH"]:
+        if self.has_atac:
             counts_Aallele, counts_Ballele, counts_Tallele, counts_Nsnp = (
                 read_single_cell_data(prep_dir, "ATAC", "seg")
             )
@@ -75,11 +72,7 @@ class SC_Assign:
 
         ##################################################
         # scRNAseq information, allele-level, bin by cell
-        self.gex_acounts = None
-        self.gex_bcounts = None
-        self.gex_tcounts = None
-        self.gex_nsnps = None
-        if data_type in ["GEX", "BOTH"]:
+        if self.has_gex:
             counts_Aallele, counts_Ballele, counts_Tallele, counts_Nsnp = (
                 read_single_cell_data(prep_dir, "GEX", "seg")
             )
@@ -102,22 +95,20 @@ class SC_Assign:
         self.peak_segIDs = peak_segIDs
 
         self.features = encode_feature_cn(features, self.ccopies, self.clones)
-        self.gene_cns = None
-        if data_type in ["GEX", "BOTH"]:
+        if self.has_gex:
             self.gene_cns = get_feature_cn_matrix(self.features, self.clones, "GEX")
             self.num_genes = len(self.gene_ids)
             print(f"#genes={self.num_genes}")
 
-        self.peak_cns = None
-        if data_type in ["ATAC", "BOTH"]:
+        if self.has_atac:
             self.peak_cns = get_feature_cn_matrix(self.features, self.clones, "ATAC")
             self.num_peaks = len(self.peak_ids)
             print(f"#peaks={self.num_peaks}")
 
         assert self.num_cells > 0
         assert self.num_bins > 0
-        assert self.gene_ids is None or len(self.gene_ids) > 0
-        assert self.peak_ids is None or len(self.peak_ids) > 0
+        assert not self.has_gex or len(self.gene_ids) > 0
+        assert not self.has_atac or len(self.peak_ids) > 0
         # print("SC_Assign initialized")
 
     def transform_data(
@@ -126,7 +117,7 @@ class SC_Assign:
         """
         convert data to tensors
         """
-        if self.data_type in ["GEX", "BOTH"]:
+        if self.has_gex:
             self.gene_mat_tensor = torch.from_numpy(self.gene_mat)  # gene by cell
             self.gene_mat_tensor_T = self.gene_mat_tensor.T  # cell by gene
             self.gene_cns_tensor = torch.from_numpy(self.gene_cns)  # gene by clone
@@ -140,7 +131,7 @@ class SC_Assign:
             self.gex_tcounts_tensor = torch.from_numpy(self.gex_tcounts)  # bin by cell
             self.gex_tcounts_tensor_T = self.gex_tcounts_tensor.T  # cell by bin
         
-        if self.data_type in ["ATAC", "BOTH"]:
+        if self.has_atac:
             self.peak_mat_tensor = torch.from_numpy(self.peak_mat)  # peak by cell
             self.peak_mat_tensor_T = self.peak_mat_tensor.T  # cell by peak
             self.peak_cns_tensor = torch.from_numpy(self.peak_cns)  # peak by clone
@@ -175,93 +166,166 @@ class SC_Assign:
         epsilon = 1e-4  # avoid log(0)
 
         ##################################################
-        mu_g0_hat = torch.mean(self.gene_mat_tensor.float(), dim=1)  # (ngenes, )
-        mu_g0_hat = mu_g0_hat.clamp(min=epsilon)
-        # gene_totals = torch.tensor(self.gene_mat.sum(axis=0))  # (ncells,)
-        # gex_totals = torch.tensor(self.gex_tcounts.sum(axis=0))  # (ncells,)
-        # gene_bin_ids: sorted bin IDs covering genes; gene_bin_ids[gene_bin_inverse] == gene_segIDs
-        gene_bin_ids, gene_bin_inverse = np.unique(
-            self.gene_segIDs, return_inverse=True
-        )
-        bin2gene_ids = [[] for _ in range(self.num_bins)]
-        for gene_id, bin_id in enumerate(gene_bin_inverse):
-            bin2gene_ids[bin_id].append(gene_id)
-        for bin_id in range(self.num_bins):
-            bin2gene_ids[bin_id] = torch.tensor(bin2gene_ids[bin_id]).long()
+        if self.has_gex:
+            mu_g0_hat = torch.mean(self.gene_mat_tensor.float(), dim=1).clamp(min=epsilon)  # (ngenes, )
+            # gene_bin_ids: sorted bin IDs covering genes; gene_bin_ids[gene_bin_inverse] == gene_segIDs
+            gene_bin_ids, gene_bin_inverse = np.unique(
+                self.gene_segIDs, return_inverse=True
+            )
+            bin2gene_ids = [[] for _ in range(self.num_bins)]
+            for gene_id, bin_id in enumerate(gene_bin_inverse):
+                bin2gene_ids[bin_id].append(gene_id)
+            for bin_id in range(self.num_bins):
+                bin2gene_ids[bin_id] = torch.tensor(bin2gene_ids[bin_id]).long()
 
-        padded_bin2gene_ids = torch.stack(
-            [F.pad(t, (0, self.num_genes - t.shape[0]), value=-1) for t in bin2gene_ids]
-        )
+            padded_bin2gene_ids = torch.stack(
+                [F.pad(t, (0, self.num_genes - t.shape[0]), value=-1) for t in bin2gene_ids]
+            )
+
+        ##################################################
+        if self.has_atac:
+            mu_p0_hat = torch.mean(self.peak_mat_tensor.float(), dim=1).clamp(min=epsilon) # (npeaks, )
+            peak_bin_ids, peak_bin_inverse = np.unique(
+                self.peak_segIDs, return_inverse=True
+            )
+            bin2peak_ids = [[] for _ in range(self.num_bins)]
+            for peak_id, bin_id in enumerate(peak_bin_inverse):
+                bin2peak_ids[bin_id].append(peak_id)
+            for bin_id in range(self.num_bins):
+                bin2peak_ids[bin_id] = torch.tensor(bin2peak_ids[bin_id]).long()
+
+            padded_bin2peak_ids = torch.stack(
+                [F.pad(t, (0, self.num_peaks - t.shape[0]), value=-1) for t in bin2peak_ids]
+            )
 
         ##################################################
         chi = pyro.sample(
             "expose_chi",
             dist.Gamma(torch.ones(K) * chi_alpha, torch.ones(K) * chi_rate).to_event(1),
         )
-        with pyro.plate("GENE", self.num_genes):
-            w_g = pyro.sample(
-                "expose_w",
-                dist.Normal(torch.zeros(K), 1.0 / torch.sqrt(chi)).to_event(1),
-            )
-            pk_g = pyro.sample("expose_pk", dist.Dirichlet(pk_betas))
-            k_g = pyro.sample(
-                "expose_k",
-                dist.RelaxedOneHotCategorical(
-                    temperature=torch.tensor(temperature), probs=pk_g
-                ),
-            )  # [ngenes, 2], first column for dependent, second column for independent
-
-            mu_g0 = pyro.sample(
-                "expose_mu0",
-                dist.Normal(
-                    inverse_softplus(mu_g0_hat),
-                    scale=torch.ones(self.num_genes) * sigma,
-                ),
-            )
-            mu_g0 = softplus(mu_g0)
-            mu_g1 = mu_g0  # TODO
 
         ##################################################
-        ave_w_g = torch.zeros(self.num_bins, K)
-        for bin_id in gene_bin_ids:
-            gene_ids = bin2gene_ids[bin_id]
-            ave_w_g[bin_id] = w_g[gene_ids].mean(dim=0)
+        if self.has_gex:
+            with pyro.plate("GENE", self.num_genes):
+                w_g = pyro.sample(
+                    "expose_w_gene",
+                    dist.Normal(torch.zeros(K), 1.0 / torch.sqrt(chi)).to_event(1),
+                )
+                pk_g = pyro.sample("expose_pk_gene", dist.Dirichlet(pk_betas))
+                k_g = pyro.sample(
+                    "expose_k_gene",
+                    dist.RelaxedOneHotCategorical(
+                        temperature=torch.tensor(temperature), probs=pk_g
+                    ),
+                )  # [ngenes, 2], first column for dependent, second column for independent
+
+                mu_g0 = pyro.sample(
+                    "expose_mu0_gene",
+                    dist.Normal(
+                        inverse_softplus(mu_g0_hat),
+                        scale=torch.ones(self.num_genes) * sigma,
+                    ),
+                )
+                mu_g0 = softplus(mu_g0)
+                mu_g1 = mu_g0  # TODO
+
+            ave_w_g = torch.zeros(self.num_bins, K)
+            for bin_id in gene_bin_ids:
+                gene_ids = bin2gene_ids[bin_id]
+                ave_w_g[bin_id] = w_g[gene_ids].mean(dim=0)
+
+        ##################################################
+        if self.has_atac:
+            with pyro.plate("PEAK", self.num_peaks):
+                w_p = pyro.sample(
+                    "expose_w_peak",
+                    dist.Normal(torch.zeros(K), 1.0 / torch.sqrt(chi)).to_event(1),
+                )
+                pk_p = pyro.sample("expose_pk_peak", dist.Dirichlet(pk_betas))
+                k_p = pyro.sample(
+                    "expose_k_peak",
+                    dist.RelaxedOneHotCategorical(
+                        temperature=torch.tensor(temperature), probs=pk_p
+                    ),
+                )  # [ngenes, 2], first column for dependent, second column for independent
+
+                mu_p0 = pyro.sample(
+                    "expose_mu0_peak",
+                    dist.Normal(
+                        inverse_softplus(mu_p0_hat),
+                        scale=torch.ones(self.num_peaks) * sigma,
+                    ),
+                )
+                mu_p0 = softplus(mu_p0)
+                mu_p1 = mu_p0  # TODO
+
+            ave_w_p = torch.zeros(self.num_bins, K)
+            for bin_id in peak_bin_ids:
+                peak_ids = bin2peak_ids[bin_id]
+                ave_w_p[bin_id] = w_p[peak_ids].mean(dim=0)
 
         ##################################################
         plate_cell = pyro.plate("CELL", self.num_cells)
         with plate_cell:
-            psi_n = pyro.sample(
-                "expose_psi", dist.Normal(torch.zeros(K), torch.ones(K)).to_event(1)
-            )
-
             pi = pyro.sample(
                 "expose_pi",
                 dist.Dirichlet(torch.ones(self.num_clones) * dirichlet_alpha),
             )
             z_n = pyro.sample("z", dist.Categorical(pi))
 
-            mu_x_n = (
-                mu_g0 * Vindex(self.gene_cns_tensor_T)[z_n] * k_g[:, 0]
-                + mu_g1 * 2 * k_g[:, 1]
-            ) * torch.exp(torch.matmul(psi_n, torch.transpose(w_g, 0, 1)))
-            x_n = pyro.sample(
-                "x",
-                dist.Multinomial(total_count=1, probs=mu_x_n, validate_args=False),
-                obs=self.gene_mat_tensor_T,
+            psi_n = pyro.sample(
+                "expose_psi", dist.Normal(torch.zeros(K), torch.ones(K)).to_event(1)
             )
 
-            mu_d_n = (
-                Vindex(self.ccopies_tensor_T)[z_n] * torch.dot(k_g[:, 0], mu_g0)
-                + 2 * torch.dot(k_g[:, 1], mu_g1)
-            ) * torch.exp(torch.matmul(psi_n, torch.transpose(ave_w_g, 0, 1)))
-            d_n = pyro.sample(
-                "d",
-                dist.Multinomial(total_count=1, probs=mu_d_n, validate_args=False),
-                obs=self.gex_tcounts_tensor_T,
-            )
+            if self.has_gex:
+                mu_x_n_gene = (
+                    mu_g0 * Vindex(self.gene_cns_tensor_T)[z_n] * k_g[:, 0]
+                    + mu_g1 * 2 * k_g[:, 1]
+                ) * torch.exp(torch.matmul(psi_n, torch.transpose(w_g, 0, 1)))
+
+                x_n_gene = pyro.sample(
+                    "x_gene",
+                    dist.Multinomial(total_count=1, probs=mu_x_n_gene, validate_args=False),
+                    obs=self.gene_mat_tensor_T,
+                )
+
+                mu_d_n_gene = (
+                    Vindex(self.ccopies_tensor_T)[z_n] * torch.dot(k_g[:, 0], mu_g0)
+                    + 2 * torch.dot(k_g[:, 1], mu_g1)
+                ) * torch.exp(torch.matmul(psi_n, torch.transpose(ave_w_g, 0, 1)))
+
+                d_n_gene = pyro.sample(
+                    "d_gene",
+                    dist.Multinomial(total_count=1, probs=mu_d_n_gene, validate_args=False),
+                    obs=self.gex_tcounts_tensor_T,
+                )
+
+            if self.has_atac:
+                mu_x_n_peak = (
+                    mu_p0 * Vindex(self.peak_cns_tensor_T)[z_n] * k_p[:, 0]
+                    + mu_p1 * 2 * k_p[:, 1]
+                ) * torch.exp(torch.matmul(psi_n, torch.transpose(w_p, 0, 1)))
+
+                x_n_peak = pyro.sample(
+                    "x_peak",
+                    dist.Multinomial(total_count=1, probs=mu_x_n_peak, validate_args=False),
+                    obs=self.peak_mat_tensor_T,
+                )
+            
+                mu_d_n_peak = (
+                    Vindex(self.ccopies_tensor_T)[z_n] * torch.dot(k_p[:, 0], mu_p0)
+                    + 2 * torch.dot(k_p[:, 1], mu_p1)
+                ) * torch.exp(torch.matmul(psi_n, torch.transpose(ave_w_p, 0, 1)))
+
+                d_n_peak = pyro.sample(
+                    "d_peak",
+                    dist.Multinomial(total_count=1, probs=mu_d_n_peak, validate_args=False),
+                    obs=self.atac_tcounts_tensor_T,
+                )
 
         ##################################################
         with pyro.plate("SEGMENT", self.num_bins) as bin_id:
+            # TODO do we marginalize the phasing? not necessary
             # ph_s = pyro.sample("expose_ph", dist.Dirichlet(h_betas))
             # h_s = pyro.sample(
             #     "expose_h",
@@ -269,36 +333,61 @@ class SC_Assign:
             #         temperature=torch.tensor(temperature), probs=ph_s
             #     ),
             # )
-
-            # (nbins, nclones)
-            gene_idx = padded_bin2gene_ids[bin_id]
-            gene_idx = gene_idx[gene_idx != -1]
-            bcopy_s = Vindex(self.bcopies_tensor)[bin_id] * torch.sum(
-                k_g[gene_idx, 0]
-            ) + 1 * torch.sum(k_g[gene_idx, 1])
-            ccopy_s = Vindex(self.ccopies_tensor)[bin_id] * torch.sum(
-                k_g[gene_idx, 0]
-            ) + 2 * torch.sum(k_g[gene_idx, 1])
-            baf_s = bcopy_s / ccopy_s  # (nbins, nclones)
-            aaf_s = 1 - baf_s
+            if self.has_gex:
+                gene_idx = padded_bin2gene_ids[bin_id]
+                gene_idx = gene_idx[gene_idx != -1]
+                bcopy_s_gene = Vindex(self.bcopies_tensor)[bin_id] * torch.sum(
+                    k_g[gene_idx, 0]
+                ) + 1 * torch.sum(k_g[gene_idx, 1])
+                ccopy_s_gene = Vindex(self.ccopies_tensor)[bin_id] * torch.sum(
+                    k_g[gene_idx, 0]
+                ) + 2 * torch.sum(k_g[gene_idx, 1])
+                baf_s_gene = bcopy_s_gene / ccopy_s_gene  # (nbins, nclones)
+            
+            if self.has_atac:
+                peak_idx = padded_bin2peak_ids[bin_id]
+                peak_idx = peak_idx[peak_idx != -1]
+                bcopy_s_peak = Vindex(self.bcopies_tensor)[bin_id] * torch.sum(
+                    k_p[peak_idx, 0]
+                ) + 1 * torch.sum(k_p[peak_idx, 1])
+                ccopy_s_peak = Vindex(self.ccopies_tensor)[bin_id] * torch.sum(
+                    k_p[peak_idx, 0]
+                ) + 2 * torch.sum(k_p[peak_idx, 1])
+                baf_s_peak = bcopy_s_peak / ccopy_s_peak  # (nbins, nclones)
 
         ##################################################
         with plate_cell:
+            # TODO do we marginalize the phasing? not necessary
             # bp_s = (
             #     Vindex(baf_s)[:, z_n] * h_s[:, 0] + Vindex(aaf_s)[:, z_n] * h_s[:, 1]
             # )  # (ncells, nbins)
-            bp_s = Vindex(baf_s)[:, z_n]  # (ncells, nbins)
-            probs_s = torch.stack([1 - bp_s, bp_s], dim=-1)  # (ncells, nbins, 2)
-            obs_s = torch.stack(
-                [self.gex_acounts_tensor_T, self.gex_bcounts_tensor_T], dim=-1
-            )  # (ncells, nbins, 2)
-            y_n = pyro.sample(
-                "y",
-                dist.Multinomial(
-                    total_count=1, probs=probs_s, validate_args=False
-                ).to_event(1),
-                obs=obs_s,
-            )
+            if self.has_gex:
+                bp_s_gene = Vindex(baf_s_gene)[:, z_n]  # (ncells, nbins)
+                probs_s_gene = torch.stack([1 - bp_s_gene, bp_s_gene], dim=-1)  # (ncells, nbins, 2)
+                obs_s_gene = torch.stack(
+                    [self.gex_acounts_tensor_T, self.gex_bcounts_tensor_T], dim=-1
+                )  # (ncells, nbins, 2)
+                y_n_gene = pyro.sample(
+                    "y_gene",
+                    dist.Multinomial(
+                        total_count=1, probs=probs_s_gene, validate_args=False
+                    ).to_event(1),
+                    obs=obs_s_gene,
+                )
+
+            if self.has_atac:
+                bp_s_peak = Vindex(baf_s_peak)[:, z_n]  # (ncells, nbins)
+                probs_s_peak = torch.stack([1 - bp_s_peak, bp_s_peak], dim=-1)  # (ncells, nbins, 2)
+                obs_s_peak = torch.stack(
+                    [self.atac_acounts_tensor_T, self.atac_bcounts_tensor_T], dim=-1
+                )  # (ncells, nbins, 2)
+                y_n_peak = pyro.sample(
+                    "y_peak",
+                    dist.Multinomial(
+                        total_count=1, probs=probs_s_peak, validate_args=False
+                    ).to_event(1),
+                    obs=obs_s_peak,
+                )
 
     def validate_model(self, plot_model=True):
         pyro.enable_validation(False)
@@ -445,5 +534,5 @@ class SC_Assign:
         )
 
         end_time = round(time.time() * 1000)
-        print(f"total-elapsed={end_time - start_time}ms for rep={curr_repeat}")
+        print(f"rep={curr_repeat}\ttotal-elapsed={end_time - start_time}ms")
         return
