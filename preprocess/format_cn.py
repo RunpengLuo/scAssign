@@ -14,6 +14,7 @@ def format_cn_profile(
     out_bbc_bcopy_file: str,
     out_bbc_cbaf_file: str,
     exclude_baf_tol=1e-6,
+    exclude_seg_len=5e6,
     laplace_alpha=0.01,
 ):
     """
@@ -75,6 +76,9 @@ def format_cn_profile(
                 segs.loc[sidx, "exclude"] = 1
             if np.all(acopies[1:] == 2) and np.all(bcopies[1:] == 2):
                 segs.loc[sidx, "exclude"] = 1
+            seg_len = row["END"] - row["START"]
+            if seg_len < exclude_seg_len:
+                segs.loc[sidx, "exclude"] = 1
             if segs.loc[sidx, "exclude"] != 1:
                 segs.loc[sidx, "mhBAF"] = mhbaf
                 segs_acopies.append(acopies)
@@ -122,7 +126,7 @@ def format_cn_profile(
     num_incl_segs = segs["exclude"].sum()
     num_incl_bbcs = bbcs["exclude"].sum()
     print(f"#informative-segments={len(segs)-num_incl_segs}/{len(segs)}")
-    print(f"#informative-segments={len(bbcs)-num_incl_bbcs}/{len(bbcs)}")
+    print(f"#informative-blocks={len(bbcs)-num_incl_bbcs}/{len(bbcs)}")
 
     # save block range information
     segs[segs["exclude"] == 0].to_csv(
