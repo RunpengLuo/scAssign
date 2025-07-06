@@ -21,7 +21,7 @@ def read_copy_number_data(prep_dir: str, bin_level: str):
     ccopies = acopies + bcopies
     bafs_df = pd.read_table(baf_file, sep="\t")
     clones = bafs_df.columns.tolist()
-    bafs = bafs_df.to_numpy()
+    bafs = bafs_df.to_numpy(dtype=np.float32)
     return clones, bins, acopies, bcopies, ccopies, bafs
 
 

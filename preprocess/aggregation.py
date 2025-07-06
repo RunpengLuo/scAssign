@@ -67,6 +67,9 @@ def aggregate_counts(
             snp_indices = snps_seg.index.to_numpy()
             nsnps_seg = len(snps_seg)
             print(f"{ch}:{seg_s}-{seg_t}\t#Het-SNP={nsnps_seg}")
+            if nsnps_seg == 0:
+                print("\twarning, no SNPs found at this region")
+                continue
 
             # access allele-count matrix
             gsnp_s, gsnp_t = snp_indices[0], snp_indices[-1] + 1
