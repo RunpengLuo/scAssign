@@ -6,3 +6,4 @@ tmp
 yuwei_result
 *.sh
 .DS_Store
+TMP*

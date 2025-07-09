@@ -15,7 +15,7 @@ import torch.nn.functional as F
 
 class SC_Data:
     def __init__(
-        self, prep_dir: str, data_type: str, bin_level: str, out_dir: str
+        self, prep_dir: str, data_type: str, bin_level: str
     ) -> None:
         assert data_type in ["GEX", "ATAC", "BOTH"]
         assert bin_level in ["seg", "bbc"]
@@ -24,7 +24,6 @@ class SC_Data:
         self.has_atac = data_type in ["ATAC", "BOTH"]
         self.has_gex = data_type in ["GEX", "BOTH"]
         self.bin_level = bin_level
-        self.out_dir = out_dir
 
         ##################################################
         self.barcodes = read_barcodes(prep_dir)

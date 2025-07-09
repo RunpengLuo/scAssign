@@ -13,8 +13,10 @@ def format_cn_profile(
     out_bbc_acopy_file: str,
     out_bbc_bcopy_file: str,
     out_bbc_cbaf_file: str,
-    exclude_baf_tol=1e-6,
+    exclude_baf_eps=1e-6,
+    exclude_baf_tol=2e-2,
     exclude_seg_len=5e6,
+    exclude_bbc_len=5e6,
     laplace_alpha=0.01,
 ):
     """
@@ -24,7 +26,11 @@ def format_cn_profile(
     2. segments dataframe, #CHR,START,END,BAF
     3. segment by clone Acopy dataframe
     4. segment by clone Bcopy dataframe
-    TODO exclude small segment
+    
+    filter segments with following criteria
+    1. short than exclude_seg_len
+    2. normal-like, exclude_baf_eps
+    3. expected BAF and calculated BAF deviated more than exclude_baf_tol
     """
     segs, clones = read_seg_ucn_file(seg_ucn)
     n_clones = len(clones)
@@ -46,13 +52,28 @@ def format_cn_profile(
     for ch in chs:
         segs_ch = segs.loc[segs["#CHR"] == ch]
         segs.loc[segs_ch.index[0], "START"] -= 1
+        bbcs_ch = bbcs.loc[bbcs["#CHR"] == ch]
+        bbcs.loc[bbcs_ch.index[0], "START"] -= 1
+
         for i in range(len(segs_ch) - 1):
             idx = segs_ch.index[i]
             jdx = segs_ch.index[i + 1]
             if segs_ch.loc[idx, "END"] != segs_ch.loc[jdx, "START"]:
                 segs.loc[jdx, "START"] -= 1
+        for i in range(len(bbcs_ch) - 1):
+            idx = bbcs_ch.index[i]
+            jdx = bbcs_ch.index[i + 1]
+            if bbcs_ch.loc[idx, "END"] != bbcs_ch.loc[jdx, "START"]:
+                bbcs.loc[jdx, "START"] -= 1
+
         for sidx in segs_ch.index:
             row = segs_ch.loc[sidx]
+            seg_start = row["START"]
+            seg_end = row["END"]
+            seg_len = seg_end - seg_start
+            seg_bafs_pbbc = bbcs_ch.loc[(bbcs_ch["START"] >= seg_start) & (bbcs_ch["END"] <= seg_end), "BAF"].to_numpy()
+            seg_baf = np.mean(seg_bafs_pbbc)
+
             acopies = np.zeros(n_clones, dtype=np.int32)
             bcopies = np.zeros(n_clones, dtype=np.int32)
             purities = np.zeros(n_clones, dtype=np.float128)
@@ -70,28 +91,24 @@ def format_cn_profile(
             afrac = np.dot(acopies, purities)
             bfrac = np.dot(bcopies, purities)
             mhbaf = bfrac / (afrac + bfrac)
-            if abs(mhbaf - 0.5) <= exclude_baf_tol:
-                segs.loc[sidx, "exclude"] = 1
             if np.all(acopies == 1) and np.all(bcopies == 1):
                 segs.loc[sidx, "exclude"] = 1
             if np.all(acopies[1:] == 2) and np.all(bcopies[1:] == 2):
                 segs.loc[sidx, "exclude"] = 1
-            seg_len = row["END"] - row["START"]
+            if abs(mhbaf - 0.5) <= exclude_baf_eps:
+                segs.loc[sidx, "exclude"] = 1
+            
+            if abs(seg_baf - mhbaf) > exclude_baf_tol:
+                segs.loc[sidx, "exclude"] = 1
             if seg_len < exclude_seg_len:
                 segs.loc[sidx, "exclude"] = 1
+
             if segs.loc[sidx, "exclude"] != 1:
                 segs.loc[sidx, "mhBAF"] = mhbaf
                 segs_acopies.append(acopies)
                 segs_bcopies.append(bcopies)
                 segs_clone_bafs.append(bafs)
 
-        bbcs_ch = bbcs.loc[bbcs["#CHR"] == ch]
-        bbcs.loc[bbcs_ch.index[0], "START"] -= 1
-        for i in range(len(bbcs_ch) - 1):
-            idx = bbcs_ch.index[i]
-            jdx = bbcs_ch.index[i + 1]
-            if bbcs_ch.loc[idx, "END"] != bbcs_ch.loc[jdx, "START"]:
-                bbcs.loc[jdx, "START"] -= 1
         for sidx in bbcs_ch.index:
             row = bbcs_ch.loc[sidx]
             acopies = np.zeros(n_clones, dtype=np.int32)
@@ -111,7 +128,7 @@ def format_cn_profile(
             afrac = np.dot(acopies, purities)
             bfrac = np.dot(bcopies, purities)
             mhbaf = bfrac / (afrac + bfrac)
-            if abs(mhbaf - 0.5) <= exclude_baf_tol:
+            if abs(mhbaf - 0.5) <= exclude_baf_eps:
                 bbcs.loc[sidx, "exclude"] = 1
             if np.all(acopies == 1) and np.all(bcopies == 1):
                 bbcs.loc[sidx, "exclude"] = 1

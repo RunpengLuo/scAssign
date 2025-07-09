@@ -15,13 +15,20 @@ def read_copy_number_data(prep_dir: str, bin_level: str):
     acopy_file = os.path.join(prep_dir, f"Acopy.{bin_level}.tsv")
     bcopy_file = os.path.join(prep_dir, f"Bcopy.{bin_level}.tsv")
     baf_file = os.path.join(prep_dir, f"BAF.{bin_level}.tsv")
-    bins = pd.read_csv(bin_file, sep="\t")
-    acopies = pd.read_table(acopy_file, sep="\t").to_numpy()
-    bcopies = pd.read_table(bcopy_file, sep="\t").to_numpy()
+    acopies = pd.read_table(acopy_file, sep="\t").to_numpy(dtype=np.int32)
+    bcopies = pd.read_table(bcopy_file, sep="\t").to_numpy(dtype=np.int32)
     ccopies = acopies + bcopies
-    bafs_df = pd.read_table(baf_file, sep="\t")
+    bafs_df = pd.read_table(baf_file, sep="\t").astype(dtype=np.float32)
     clones = bafs_df.columns.tolist()
     bafs = bafs_df.to_numpy(dtype=np.float32)
+
+    bins = pd.read_csv(bin_file, sep="\t")
+    bins["cn-state"] = "unknown"
+    for bid in range(len(bins)):
+        states = []
+        for cid in range(len(clones)):
+            states.append(f"{acopies[bid, cid]}|{bcopies[bid, cid]}")
+        bins.loc[bid, "cn-state"] = ";".join(states)
     return clones, bins, acopies, bcopies, ccopies, bafs
 
 
@@ -35,10 +42,10 @@ def read_single_cell_data(prep_dir: str, modality: str, bin_level: str):
     Tallele_file = os.path.join(prep_dir, f"{modality}_Tallele.{bin_level}.npz")
     nSNP_file = os.path.join(prep_dir, f"{modality}_nsnps.{bin_level}.npz")
 
-    counts_Aallele: np.ndarray = sparse.load_npz(Aallele_file).toarray()
-    counts_Ballele: np.ndarray = sparse.load_npz(Ballele_file).toarray()
-    counts_Tallele: np.ndarray = sparse.load_npz(Tallele_file).toarray()
-    counts_Nsnp: np.ndarray = sparse.load_npz(nSNP_file).toarray()
+    counts_Aallele: np.ndarray = sparse.load_npz(Aallele_file).toarray().astype(dtype=np.int32)
+    counts_Ballele: np.ndarray = sparse.load_npz(Ballele_file).toarray().astype(dtype=np.int32)
+    counts_Tallele: np.ndarray = sparse.load_npz(Tallele_file).toarray().astype(dtype=np.int32)
+    counts_Nsnp: np.ndarray = sparse.load_npz(nSNP_file).toarray().astype(dtype=np.int32)
     return counts_Aallele, counts_Ballele, counts_Tallele, counts_Nsnp
 
 
@@ -54,7 +61,7 @@ def read_single_cell_features(prep_dir: str):
     gene_ids = None
     gene_segIDs = None
     if os.path.exists(gex_mat_file):
-        gex_mat: np.ndarray = sparse.load_npz(gex_mat_file).toarray()
+        gex_mat: np.ndarray = sparse.load_npz(gex_mat_file).toarray().astype(dtype=np.int32)
         gene_ids = features.loc[features["feature_type"] == "Gene Expression", "feature_id"].tolist()
         gene_segIDs = features.loc[features["feature_type"] == "Gene Expression", "segID"].tolist()
         assert gex_mat.shape[0] == len(gene_ids) and len(gene_ids) > 0
@@ -63,7 +70,7 @@ def read_single_cell_features(prep_dir: str):
     peak_ids = None
     peak_segIDs = None
     if os.path.exists(atac_mat_file):
-        peak_mat: np.ndarray = sparse.load_npz(atac_mat_file).toarray()
+        peak_mat: np.ndarray = sparse.load_npz(atac_mat_file).toarray().astype(dtype=np.int32)
         peak_ids = features.loc[features["feature_type"] == "Peaks", "feature_id"].tolist()
         peak_segIDs = features.loc[features["feature_type"] == "Peaks", "segID"].tolist()
         assert peak_mat.shape[0] == len(peak_ids) and len(peak_ids) > 0
@@ -80,7 +87,7 @@ def get_feature_cn_matrix(features: pd.DataFrame, clones: list, modality: str):
     columns = [f"cn_{clone}" for clone in clones]
     feat_cn_mat = None
     if modality == "GEX":
-        feat_cn_mat = features.loc[features["feature_type"] == "Gene Expression", columns].to_numpy()
+        feat_cn_mat = features.loc[features["feature_type"] == "Gene Expression", columns].to_numpy(dtype=np.int32)
     else:
-        feat_cn_mat = features.loc[features["feature_type"] == "Peaks", columns].to_numpy()
+        feat_cn_mat = features.loc[features["feature_type"] == "Peaks", columns].to_numpy(dtype=np.int32)
     return feat_cn_mat

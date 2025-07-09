@@ -34,7 +34,11 @@ if __name__ == "__main__":
     cr_feature_file = args["raw_features"]
     cr_mtx_file = args["feature_mtx"]
 
-    laplace = args["laplace"]
+    exclude_baf_eps=1e-6
+    exclude_baf_tol=2e-2
+    exclude_seg_len=10e6
+    exclude_bbc_len=5e6
+    laplace_alpha = args["laplace"]
 
     out_dir = args["outdir"]
     os.makedirs(out_dir, exist_ok=True)
@@ -60,7 +64,11 @@ if __name__ == "__main__":
         proc_bbc_acopy_file,
         proc_bbc_bcopy_file,
         proc_bbc_cbaf_file,
-        laplace_alpha=laplace,
+        exclude_baf_eps,
+        exclude_baf_tol,
+        exclude_seg_len,
+        exclude_bbc_len,
+        laplace_alpha
     )
 
     ##################################################

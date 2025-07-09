@@ -8,9 +8,9 @@ import pandas as pd
 import pyro
 import pyro.optim
 from pyro import poutine
-from pyro.infer.autoguide import AutoDelta
+from pyro.infer.autoguide import AutoDelta, AutoDiscreteParallel
 from pyro.infer.autoguide.initialization import init_to_sample
-from pyro.infer import SVI, TraceEnum_ELBO
+from pyro.infer import SVI, TraceEnum_ELBO, infer_discrete
 
 import torch
 import torch.nn.functional as F
@@ -18,7 +18,7 @@ import torch.nn.functional as F
 from sc_data import SC_Data
 from sc_models import *
 
-def validate_model(data: SC_Data, model=None, validate=True, plot_model=True):
+def validate_model(data: SC_Data, model=None, validate=True, plot_model=True, out_dir=None):
     pyro.enable_validation(False)
     pyro.clear_param_store()
     optim = pyro.optim.Adam({"lr": 0.1, "betas": [0.8, 0.99]})
@@ -50,7 +50,7 @@ def validate_model(data: SC_Data, model=None, validate=True, plot_model=True):
             if site["type"] == "sample":
                 value = site["value"]
                 lp = site["log_prob"]
-                print(f"{name}: shape={site['value'].shape}")
+                print(f"{name}: shape={site['value'].shape} {lp}")
                 if torch.isnan(value).any() or torch.isnan(lp).any() or torch.isinf(lp).any():
                     print(f"value NaN detected at site: {name}, value={value}, lp={lp}")
                     sys.exit(1)
@@ -61,7 +61,7 @@ def validate_model(data: SC_Data, model=None, validate=True, plot_model=True):
             if site["type"] == "sample":
                 value = site["value"]
                 lp = site["log_prob"]
-                print(f"{name}: shape={site['value'].shape}")
+                print(f"{name}: shape={site['value'].shape} {lp}")
                 if torch.isnan(value).any() or torch.isnan(lp).any() or torch.isinf(lp).any():
                     print(f"value NaN detected at site: {name}, value={value}, lp={lp}")
                     sys.exit(1)
@@ -77,10 +77,14 @@ def validate_model(data: SC_Data, model=None, validate=True, plot_model=True):
             dpi="300",
         )
         dot.node_attr.update(fontsize="12")
-        dot.render(os.path.join(data.out_dir, "model"), format="png", cleanup=True)
+        dot.render(os.path.join(out_dir, "model"), format="png", cleanup=True)
     return
 
-def run_model(data: SC_Data, model=None, curr_repeat=1):
+def run_model(data: SC_Data, model=None, curr_repeat=1, out_dir=None):
+    pyro.enable_validation(False)
+    # pyro.enable_validation(True)
+    torch.autograd.set_detect_anomaly(True)
+
     start_time = round(time.time() * 1000)
     learning_rate = 0.1
     anneal_rate = 0.01
@@ -103,7 +107,6 @@ def run_model(data: SC_Data, model=None, curr_repeat=1):
     def init_model(seed):
         pyro.set_rng_seed(seed)
         torch.manual_seed(seed)
-        pyro.enable_validation(False)
         pyro.clear_param_store()
 
         global_guide = AutoDelta(
@@ -154,17 +157,17 @@ def run_model(data: SC_Data, model=None, curr_repeat=1):
         curr_loss = svi.step(data, np_temp)
         losses.append(curr_loss)
         print(f"iteration={curr_iter}\tloss={curr_loss}")
-        if torch.isinf(torch.tensor(curr_loss)):
-            print("failed")
-            for name, value in pyro.get_param_store().items():
-                # if site["type"] == "sample" and site["is_observed"] is False:
-                # lp = value["log_prob"]
-                print(f"{name} {type(value)} {value}")
-                # if value.grad is not None and torch.isinf(value.grad).any():
-                #     print(f"[GRAD INF] {name}")
-                # if value.grad is not None and torch.isnan(value.grad).any():
-                #     print(f"[GRAD NAN] {name}")
-            sys.exit(1)
+        # if torch.isinf(torch.tensor(curr_loss)):
+        #     print("failed")
+        #     for name, value in pyro.get_param_store().items():
+        #         # if site["type"] == "sample" and site["is_observed"] is False:
+        #         # lp = value["log_prob"]
+        #         print(f"{name} {type(value)} {value}")
+        #         # if value.grad is not None and torch.isinf(value.grad).any():
+        #         #     print(f"[GRAD INF] {name}")
+        #         # if value.grad is not None and torch.isnan(value.grad).any():
+        #         #     print(f"[GRAD NAN] {name}")
+        #     sys.exit(1)
         if curr_iter >= min_iter:
             prev_loss = losses[-2]
             loss_diff = abs((curr_loss - prev_loss) / prev_loss)
@@ -175,19 +178,26 @@ def run_model(data: SC_Data, model=None, curr_repeat=1):
                 break
 
     ##################################################
-    map_estimates = global_guide()
+    guide_trace = poutine.trace(global_guide).get_trace(data)  # record the globals
+    trained_model = poutine.replay(model, trace=guide_trace)  # replay the globals
 
+
+    # inferred_model = infer_discrete(
+    #     trained_model, temperature=0, first_available_dim=-2
+    # )  # avoid conflict with data plate
+    # trace = poutine.trace(inferred_model).get_trace(data)
+    # zs: torch.Tensor = trace.nodes["z"]["value"]
+    
+    map_estimates = global_guide()
     # store results to LOG file
-    rep_dir = os.path.join(data.out_dir, f"rep_{curr_repeat}")
-    os.makedirs(rep_dir, exist_ok=True)
     for name in map_estimates:
-        out_file = os.path.join(rep_dir, f"{name}.tsv")
+        out_file = os.path.join(out_dir, f"{name}.tsv")
         map_res = map_estimates[name].detach().cpu().numpy()
         pd.DataFrame(map_res).to_csv(out_file, sep="\t", index=False)
 
     loss_df = pd.DataFrame({"loss": losses})
     loss_df.to_csv(
-        os.path.join(rep_dir, "loss.tsv"), sep="\t", index=False, header=True
+        os.path.join(out_dir, "loss.tsv"), sep="\t", index=False, header=True
     )
 
     end_time = round(time.time() * 1000)
