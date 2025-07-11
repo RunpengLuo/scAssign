@@ -118,12 +118,15 @@ def read_barcodes(bc_file: str):
 
 
 def read_VCF(vcf_file: str, has_phase=False):
+    fields = "%CHROM\t%POS"
+    names = ["CHR", "POS"]
+    format_tags = []
     if has_phase:
-        fields = "%CHROM\t%POS\t[%GT\t%PS]\n"
-        names = ["CHR", "POS", "GT", "PS"]
-    else:
-        fields = "%CHROM\t%POS\n"
-        names = ["CHR", "POS"]
+        format_tags.extend(["%GT", "%PS"])
+        names.extend(["GT", "PS"])
+    if len(format_tags) > 0:
+        fields = fields + "\t[" + "\t".join(format_tags) + "]"
+    fields += "\n"
     cmd = ["bcftools", "query", "-f", fields, vcf_file]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     snps = pd.read_csv(StringIO(result.stdout), sep="\t", header=None, names=names)
@@ -136,6 +139,24 @@ def read_VCF(vcf_file: str, has_phase=False):
         f"{vcf_file} has duplicated rows"
     )
     return snps
+
+def read_VCF_cellsnp_err_header(vcf_file: str):
+    """cellsnp-lite has issue with its header"""
+    fields = "%CHROM\t%POS\t%INFO"
+    names = ["CHR", "POS", "INFO"]
+    cmd = ["bcftools", "query", "-f", fields, vcf_file]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    snps = pd.read_csv(StringIO(result.stdout), sep="\t", header=None, names=names)
+    def extract_info_field(info_str, key):
+        for field in info_str.split(";"):
+            if field.startswith(f"{key}="):
+                return int(field.split("=")[1])
+        raise ValueError("nan-DP field")
+
+    snps["DP"] = snps["INFO"].apply(lambda x: extract_info_field(x, "DP"))
+    snps = snps.drop(columns="INFO")
+    return snps
+
 
 def get_chr_sizes(sz_file: str):
     chr_sizes = OrderedDict()

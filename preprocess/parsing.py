@@ -48,7 +48,13 @@ def parse_arguments(args=None):
         "--hairs",
         required=False,
         type=str,
-        help="hair file hairs.tsv.gz, cleaned up script, after HapCUT2",
+        help="hair file hairs.tsv.gz, pairwise SNP reads linkage from HapCUT2",
+    )
+    parser.add_argument(
+        "--phased_vcf",
+        required=False,
+        type=str,
+        help="phased.vcf.gz, phased VCF file",
     )
 
     parser.add_argument(
@@ -90,6 +96,28 @@ def parse_arguments(args=None):
         type=float,
         help="Laplace smoothing term when computing clone BAF",
     )
+    parser.add_argument(
+        "--baf_eps",
+        required=False,
+        default=1e-6,
+        type=float,
+        help="Exclude segment with BAF close to 0.5 up to baf_eps",
+    )
+    parser.add_argument(
+        "--baf_tol",
+        required=False,
+        default=2e-2,
+        type=float,
+        help="Exclude segment with BAF diff to estimated BBC BAF up to baf_tol",
+    )
+    parser.add_argument(
+        "--seg_len",
+        required=False,
+        default=10e6,
+        type=float,
+        help="Exclude segment with length less than seg_len",
+    )
+
     args = parser.parse_args()
 
     atac_vcf = os.path.join(args.atac_dir, "cellSNP.base.vcf.gz")

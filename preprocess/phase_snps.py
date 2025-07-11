@@ -18,7 +18,6 @@ from hmm_utils import *
 
 def phase_snps(
     seg_file: str,
-    bbc_file: str,
     snp_file: str,
     hair_file: str,
     nbed_file: str,

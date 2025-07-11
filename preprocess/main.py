@@ -7,7 +7,7 @@ import pandas as pd
 from parsing import *
 from utils import *
 from phase_snps import phase_snps
-from format_cn import format_cn_profile
+from format_cn import format_cn_profile, subdivide_segments
 from aggregation import aggregate_counts
 from format_features import format_feature_matrix
 
@@ -37,7 +37,8 @@ if __name__ == "__main__":
     exclude_baf_eps=1e-6
     exclude_baf_tol=2e-2
     exclude_seg_len=10e6
-    exclude_bbc_len=5e6
+    min_gex_count=100
+    min_atac_count=100
     laplace_alpha = args["laplace"]
 
     out_dir = args["outdir"]
@@ -49,10 +50,6 @@ if __name__ == "__main__":
     proc_seg_acopy_file = os.path.join(out_dir, "Acopy.seg.tsv")
     proc_seg_bcopy_file = os.path.join(out_dir, "Bcopy.seg.tsv")
     proc_seg_cbaf_file = os.path.join(out_dir, "BAF.seg.tsv")
-    proc_bbc_file = os.path.join(out_dir, "Position.bbc.tsv")
-    proc_bbc_acopy_file = os.path.join(out_dir, "Acopy.bbc.tsv")
-    proc_bbc_bcopy_file = os.path.join(out_dir, "Bcopy.bbc.tsv")
-    proc_bbc_cbaf_file = os.path.join(out_dir, "BAF.bbc.tsv")
     format_cn_profile(
         seg_ucn,
         bbc_ucn,
@@ -60,14 +57,9 @@ if __name__ == "__main__":
         proc_seg_acopy_file,
         proc_seg_bcopy_file,
         proc_seg_cbaf_file,
-        proc_bbc_file,
-        proc_bbc_acopy_file,
-        proc_bbc_bcopy_file,
-        proc_bbc_cbaf_file,
         exclude_baf_eps,
         exclude_baf_tol,
         exclude_seg_len,
-        exclude_bbc_len,
         laplace_alpha
     )
 
@@ -86,7 +78,6 @@ if __name__ == "__main__":
     # phase_file = os.path.join(out_dir, f"phased_snps.{phase_mode}.tsv")
     phase_snps(
         proc_seg_file,
-        proc_bbc_file,
         vcf_file,
         hair_file,
         normal_1bed,
@@ -97,15 +88,35 @@ if __name__ == "__main__":
     )
 
     ##################################################
+    print(f"perform adaptive binning on segments")
+    proc_bin_file = os.path.join(out_dir, "Position.bin.tsv")
+    proc_bin_acopy_file = os.path.join(out_dir, "Acopy.bin.tsv")
+    proc_bin_bcopy_file = os.path.join(out_dir, "Bcopy.bin.tsv")
+    proc_bin_cbaf_file = os.path.join(out_dir, "BAF.bin.tsv")
+    subdivide_segments(
+        proc_seg_file,
+        proc_seg_acopy_file,
+        proc_seg_bcopy_file,
+        proc_seg_cbaf_file,
+        bvcf_gex,
+        bvcf_atac,
+        proc_bin_file,
+        proc_bin_acopy_file,
+        proc_bin_bcopy_file,
+        proc_bin_cbaf_file,
+        min_gex_count,
+        min_atac_count)
+
+    ##################################################
     has_atac = False
     if bvcf_atac != None and dp_mtx_atac != None and ad_mtx_atac != None:
         print("aggregate SNP counts for scATAC-seq")
         has_atac = True
-        atac_bbc_Aallele_file = os.path.join(out_dir, "ATAC_Aallele.bbc.npz")
-        atac_bbc_Ballele_file = os.path.join(out_dir, "ATAC_Ballele.bbc.npz")
-        atac_bbc_Tallele_file = os.path.join(out_dir, "ATAC_Tallele.bbc.npz")
-        atac_bbc_nSNP_file = os.path.join(out_dir, "ATAC_nsnps.bbc.npz")
-        if not os.path.exists(atac_bbc_nSNP_file):
+        atac_bin_Aallele_file = os.path.join(out_dir, "ATAC_Aallele.bin.npz")
+        atac_bin_Ballele_file = os.path.join(out_dir, "ATAC_Ballele.bin.npz")
+        atac_bin_Tallele_file = os.path.join(out_dir, "ATAC_Tallele.bin.npz")
+        atac_bin_nSNP_file = os.path.join(out_dir, "ATAC_nsnps.bin.npz")
+        if not os.path.exists(atac_bin_nSNP_file):
             aggregate_counts(
                 proc_seg_file,
                 barcode_file,
@@ -114,10 +125,10 @@ if __name__ == "__main__":
                 ad_mtx_atac,
                 phase_file,
                 "ATAC",
-                atac_bbc_Aallele_file,
-                atac_bbc_Ballele_file,
-                atac_bbc_Tallele_file,
-                atac_bbc_nSNP_file,
+                atac_bin_Aallele_file,
+                atac_bin_Ballele_file,
+                atac_bin_Tallele_file,
+                atac_bin_nSNP_file,
                 "PHASE",
             )
 
@@ -146,11 +157,11 @@ if __name__ == "__main__":
     if bvcf_gex != None and dp_mtx_gex != None and ad_mtx_gex != None:
         print("aggregate SNP counts for scRNA-seq")
         has_gex = True
-        gex_bbc_Aallele_file = os.path.join(out_dir, "GEX_Aallele.bbc.npz")
-        gex_bbc_Ballele_file = os.path.join(out_dir, "GEX_Ballele.bbc.npz")
-        gex_bbc_Tallele_file = os.path.join(out_dir, "GEX_Tallele.bbc.npz")
-        gex_bbc_nSNP_file = os.path.join(out_dir, "GEX_nsnps.bbc.npz")
-        if not os.path.exists(gex_bbc_nSNP_file):
+        gex_bin_Aallele_file = os.path.join(out_dir, "GEX_Aallele.bin.npz")
+        gex_bin_Ballele_file = os.path.join(out_dir, "GEX_Ballele.bin.npz")
+        gex_bin_Tallele_file = os.path.join(out_dir, "GEX_Tallele.bin.npz")
+        gex_bin_nSNP_file = os.path.join(out_dir, "GEX_nsnps.bin.npz")
+        if not os.path.exists(gex_bin_nSNP_file):
             aggregate_counts(
                 proc_seg_file,
                 barcode_file,
@@ -159,10 +170,10 @@ if __name__ == "__main__":
                 ad_mtx_gex,
                 phase_file,
                 "GEX",
-                gex_bbc_Aallele_file,
-                gex_bbc_Ballele_file,
-                gex_bbc_Tallele_file,
-                gex_bbc_nSNP_file,
+                gex_bin_Aallele_file,
+                gex_bin_Ballele_file,
+                gex_bin_Tallele_file,
+                gex_bin_nSNP_file,
                 "PHASE",
             )
 
