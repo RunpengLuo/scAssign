@@ -38,7 +38,9 @@ if __name__ == "__main__":
     exclude_baf_tol=2e-2
     exclude_seg_len=10e6
     min_gex_count=100
+    max_gex_count=1000
     min_atac_count=100
+    max_atac_count=1000
     laplace_alpha = args["laplace"]
 
     out_dir = args["outdir"]
@@ -105,7 +107,10 @@ if __name__ == "__main__":
         proc_bin_bcopy_file,
         proc_bin_cbaf_file,
         min_gex_count,
-        min_atac_count)
+        max_gex_count,
+        min_atac_count,
+        max_atac_count
+    )
 
     ##################################################
     has_atac = False

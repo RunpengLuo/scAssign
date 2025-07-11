@@ -138,8 +138,10 @@ def subdivide_segments(
     out_seg_acopy_file: str,
     out_seg_bcopy_file: str,
     out_seg_cbaf_file: str,
-    min_gex_count=10, 
-    min_atac_count=10):
+    min_gex_count=10,
+    max_gex_count=500,
+    min_atac_count=10,
+    max_atac_count=500):
     """
     subdivide cn segment such that each segment has min-gex-count and min-atac-count
     """
@@ -191,11 +193,17 @@ def subdivide_segments(
             cpos = snp["POS"]
             gex_count += snp["GEX_DP"]
             atac_count += snp["ATAC_DP"]
+            do_blocking = False
+            if gex_count > max_gex_count or atac_count > max_atac_count:
+                do_blocking = True
             if (not has_gex or gex_count > min_gex_count) and (not has_atac or atac_count > min_atac_count):
+                do_blocking = True
+            if do_blocking:
                 blocks.append([seg_ch, block_start, cpos + 1, gex_count, atac_count, si])
                 gex_count = 0
                 atac_count = 0
                 block_start = cpos + 1
+
         if gex_count > 0 or atac_count > 0: # merge last block
             blocks.append([seg_ch, block_start, seg_end, gex_count, atac_count, si])
 
