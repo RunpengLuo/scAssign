@@ -8,6 +8,7 @@ import pandas as pd
 
 from utils import *
 
+
 def aggregate_counts(
     seg_file: str,
     barcode_file: str,
@@ -42,11 +43,11 @@ def aggregate_counts(
     print("load phase information")
     phase_df = pd.read_table(phase_file, sep="\t")
     base_snps = read_VCF(base_vcf_file)
-    base_snps = pd.merge(base_snps, phase_df, on=["CHR", "POS"], how="left")
-    base_snps.loc[:, "POS"] -= 1 # convert to 0-based indexing
+    base_snps = pd.merge(base_snps, phase_df, on=["#CHR", "POS"], how="left")
+    base_snps.loc[:, "POS"] -= 1  # convert to 0-based indexing
     useref_arr = base_snps[phase_col].to_numpy()
     phased_arr = (~base_snps[phase_col].isna()).to_numpy()
-    
+
     print("load DP and AD sparse matrix")
     dp_mtx: csr_matrix = mmread(dp_mtx_file).tocsr()
     ad_mtx: csr_matrix = mmread(ad_mtx_file).tocsr()
@@ -59,14 +60,16 @@ def aggregate_counts(
     for ch in segs["#CHR"].unique():
         segs_ch = segs[segs["#CHR"] == ch]
         num_segs_ch = len(segs_ch)
-        base_snps_ch = base_snps[base_snps["CHR"] == ch]
+        base_snps_ch = base_snps[base_snps["#CHR"] == ch]
+        print(f"{ch}\t#bins={num_segs_ch}\t#Het-SNPs={len(base_snps_ch)}")
         for si in range(num_segs_ch):
             seg = segs_ch.iloc[si]
             seg_s, seg_t = seg["START"], seg["END"]
             snps_seg = subset_baf(base_snps_ch, ch, seg_s, seg_t)
             snp_indices = snps_seg.index.to_numpy()
             nsnps_seg = len(snps_seg)
-            print(f"{ch}:{seg_s}-{seg_t}\t#Het-SNP={nsnps_seg}")
+            if v > 1:
+                print(f"{ch}:{seg_s}-{seg_t}\t#Het-SNP={nsnps_seg}")
             if nsnps_seg == 0:
                 print("\twarning, no SNPs found at this region")
                 continue
@@ -92,7 +95,7 @@ def aggregate_counts(
             b_allele_mat[seg_index, :] = np.round(np.sum(rows_beta, axis=0))
             t_allele_mat[seg_index, :] = np.sum(rows_dp, axis=0)
             snp_count_mat[seg_index, :] = np.sum(rows_dp > 0, axis=0)
-    
+
     a_allele_mat = (t_allele_mat - b_allele_mat).astype(np.int32)
 
     sparse.save_npz(out_agg_a_file, csr_matrix(a_allele_mat))

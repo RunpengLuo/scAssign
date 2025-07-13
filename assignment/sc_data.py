@@ -33,7 +33,7 @@ class SC_Data:
         ##################################################
         # copy-number information
         clones, bins, acopies, bcopies, ccopies, bafs = read_copy_number_data(
-            prep_dir, bin_level
+            prep_dir, "seg"
         )
         self.clones = clones
         self.bins = bins
@@ -50,8 +50,18 @@ class SC_Data:
         ##################################################
         # scATACseq information allele-level, bin by cell
         if self.has_atac:
+            _, bins, acopies, bcopies, ccopies, bafs = (
+                read_copy_number_data(prep_dir, bin_level, "ATAC")
+            )
+            self.atac_bins = bins
+            self.atac_acopies = acopies
+            self.atac_bcopies = bcopies
+            self.atac_ccopies = ccopies
+            self.atac_bafs = bafs
+            self.atac_num_bins = len(bins)
+
             counts_Aallele, counts_Ballele, counts_Tallele, counts_Nsnp = (
-                read_single_cell_data(prep_dir, "ATAC", "seg")
+                read_single_cell_data(prep_dir, "ATAC", bin_level)
             )
             self.atac_acounts = counts_Aallele
             self.atac_bcounts = counts_Ballele
@@ -61,8 +71,18 @@ class SC_Data:
         ##################################################
         # scRNAseq information, allele-level, bin by cell
         if self.has_gex:
+            _, bins, acopies, bcopies, ccopies, bafs = (
+                read_copy_number_data(prep_dir, bin_level, "GEX")
+            )
+            self.gex_bins = bins
+            self.gex_acopies = acopies
+            self.gex_bcopies = bcopies
+            self.gex_ccopies = ccopies
+            self.gex_bafs = bafs
+            self.gex_num_bins = len(bins)
+
             counts_Aallele, counts_Ballele, counts_Tallele, counts_Nsnp = (
-                read_single_cell_data(prep_dir, "GEX", "seg")
+                read_single_cell_data(prep_dir, "GEX", bin_level)
             )
             self.gex_acounts = counts_Aallele
             self.gex_bcounts = counts_Ballele
@@ -71,67 +91,42 @@ class SC_Data:
 
         ##################################################
         # features, total-level, feature by cell
-        features, gene_mat, gene_ids, gene_segIDs, peak_mat, peak_ids, peak_segIDs = (
-            read_single_cell_features(prep_dir)
-        )
+        # cell-ranger matrix is not good, skip this for now
+        # if os.path.exists(os.path.join(prep_dir, "features.tsv.gz")):
+        #     features, gene_mat, gene_ids, gene_segIDs, peak_mat, peak_ids, peak_segIDs = (
+        #         read_single_cell_features(prep_dir)
+        #     )
 
-        self.gene_mat = gene_mat
-        self.gene_ids = gene_ids
-        self.gene_segIDs = gene_segIDs
-        self.peak_mat = peak_mat
-        self.peak_ids = peak_ids
-        self.peak_segIDs = peak_segIDs
+        #     self.gene_mat = gene_mat
+        #     self.gene_ids = gene_ids
+        #     self.gene_segIDs = gene_segIDs
+        #     self.peak_mat = peak_mat
+        #     self.peak_ids = peak_ids
+        #     self.peak_segIDs = peak_segIDs
 
-        self.features = encode_feature_cn(features, self.ccopies, self.clones)
-        if self.has_gex:
-            self.gene_cns = get_feature_cn_matrix(self.features, self.clones, "GEX")
-            self.num_genes = len(self.gene_ids)
-            print(f"#genes={self.num_genes}")
+        #     self.features = encode_feature_cn(features, self.ccopies, self.clones)
+        #     if self.has_gex:
+        #         self.gene_cns = get_feature_cn_matrix(self.features, self.clones, "GEX")
+        #         self.num_genes = len(self.gene_ids)
+        #         print(f"#genes={self.num_genes}")
 
-        if self.has_atac:
-            self.peak_cns = get_feature_cn_matrix(self.features, self.clones, "ATAC")
-            self.num_peaks = len(self.peak_ids)
-            print(f"#peaks={self.num_peaks}")
+        #     if self.has_atac:
+        #         self.peak_cns = get_feature_cn_matrix(self.features, self.clones, "ATAC")
+        #         self.num_peaks = len(self.peak_ids)
+        #         print(f"#peaks={self.num_peaks}")
+        #     assert not self.has_gex or len(self.gene_ids) > 0
+        #     assert not self.has_atac or len(self.peak_ids) > 0
 
         assert self.num_cells > 0
         assert self.num_bins > 0
-        assert not self.has_gex or len(self.gene_ids) > 0
-        assert not self.has_atac or len(self.peak_ids) > 0
-        # print("SC_Data initialized")
+        print("SC_Data initialized")
+        return
 
     def transform_data(self, epsilon=1e-4):
         """
         convert data to tensors
         """
         if self.has_gex:
-            self.gene_mat_tensor = torch.from_numpy(
-                self.gene_mat
-            ).float()  # gene by cell
-            self.gene_mat_tensor_T = self.gene_mat_tensor.T  # cell by gene
-            self.gene_cns_tensor = torch.from_numpy(self.gene_cns)  # gene by clone
-            self.gene_cns_tensor_T = self.gene_cns_tensor.T  # clone by gene
-            # self.gene_total_tensor = torch.from_numpy(self.gene_mat.sum(axis=0))
-
-            self.mu_g0_hat = torch.mean(self.gene_mat_tensor, dim=1).clamp(
-                min=epsilon
-            )  # (ngenes, )
-
-            self.gene_bin_ids, gene_bin_inverse = np.unique(
-                self.gene_segIDs, return_inverse=True
-            )
-            bin2gene_ids = [[] for _ in range(self.num_bins)]
-            for gene_id, bin_id in enumerate(gene_bin_inverse):
-                bin2gene_ids[bin_id].append(gene_id)
-            for bin_id in range(self.num_bins):
-                bin2gene_ids[bin_id] = torch.tensor(bin2gene_ids[bin_id]).long()
-            self.bin2gene_ids = bin2gene_ids
-            self.padded_bin2gene_ids = torch.stack(
-                [
-                    F.pad(t, (0, self.num_genes - t.shape[0]), value=-1)
-                    for t in bin2gene_ids
-                ]
-            )
-
             self.gex_acounts_tensor = torch.from_numpy(self.gex_acounts)
             self.gex_acounts_tensor_T = self.gex_acounts_tensor.T
             self.gex_bcounts_tensor = torch.from_numpy(self.gex_bcounts)
@@ -139,35 +134,18 @@ class SC_Data:
             self.gex_tcounts_tensor = torch.from_numpy(self.gex_tcounts)  # bin by cell
             self.gex_tcounts_tensor_T = self.gex_tcounts_tensor.T  # cell by bin
 
-        if self.has_atac:
-            self.peak_mat_tensor = torch.from_numpy(
-                self.peak_mat
-            ).float()  # peak by cell
-            self.peak_mat_tensor_T = self.peak_mat_tensor.T  # cell by peak
-            self.peak_cns_tensor = torch.from_numpy(self.peak_cns)  # peak by clone
-            self.peak_cns_tensor_T = self.peak_cns_tensor.T  # clone by peak
-            # self.peak_total_tensor = torch.from_numpy(self.peak_mat.sum(axis=0))
-
-            self.mu_p0_hat = torch.mean(self.peak_mat_tensor, dim=1).clamp(
+            self.gex_acopies_tensor = torch.from_numpy(self.gex_acopies)
+            self.gex_acopies_tensor_T = self.gex_acopies_tensor.T
+            self.gex_bcopies_tensor = torch.from_numpy(self.gex_bcopies)
+            self.gex_bcopies_tensor_T = self.gex_bcopies_tensor.T
+            self.gex_ccopies_tensor = torch.from_numpy(self.gex_ccopies)
+            self.gex_ccopies_tensor_T = self.gex_ccopies_tensor.T
+            self.gex_bafs_tensor = torch.from_numpy(self.gex_bafs).clamp(
                 min=epsilon
-            )  # (npeaks, )
+            )  # bin by clone
+            self.gex_bafs_tensor_T = self.gex_bafs_tensor.T  # clone by bin
 
-            self.peak_bin_ids, peak_bin_inverse = np.unique(
-                self.peak_segIDs, return_inverse=True
-            )
-            bin2peak_ids = [[] for _ in range(self.num_bins)]
-            for peak_id, bin_id in enumerate(peak_bin_inverse):
-                bin2peak_ids[bin_id].append(peak_id)
-            for bin_id in range(self.num_bins):
-                bin2peak_ids[bin_id] = torch.tensor(bin2peak_ids[bin_id]).long()
-            self.bin2peak_ids = bin2peak_ids
-            self.padded_bin2peak_ids = torch.stack(
-                [
-                    F.pad(t, (0, self.num_peaks - t.shape[0]), value=-1)
-                    for t in bin2peak_ids
-                ]
-            )
-
+        if self.has_atac:
             self.atac_acounts_tensor = torch.from_numpy(self.atac_acounts)
             self.atac_acounts_tensor_T = self.atac_acounts_tensor.T
             self.atac_bcounts_tensor = torch.from_numpy(self.atac_bcounts)
@@ -177,14 +155,14 @@ class SC_Data:
             )  # bin by cell
             self.atac_tcounts_tensor_T = self.atac_tcounts_tensor.T  # cell by bin
 
-        self.acopies_tensor = torch.from_numpy(self.acopies)
-        self.acopies_tensor_T = self.acopies_tensor.T
-        self.bcopies_tensor = torch.from_numpy(self.bcopies)
-        self.bcopies_tensor_T = self.bcopies_tensor.T
-        self.ccopies_tensor = torch.from_numpy(self.ccopies)
-        self.ccopies_tensor_T = self.ccopies_tensor.T
-        self.bafs_tensor = torch.from_numpy(self.bafs).clamp(
-            min=epsilon
-        )  # bin by clone
-        self.bafs_tensor_T = self.bafs_tensor.T  # clone by bin
+            self.atac_acopies_tensor = torch.from_numpy(self.atac_acopies)
+            self.atac_acopies_tensor_T = self.atac_acopies_tensor.T
+            self.atac_bcopies_tensor = torch.from_numpy(self.atac_bcopies)
+            self.atac_bcopies_tensor_T = self.atac_bcopies_tensor.T
+            self.atac_ccopies_tensor = torch.from_numpy(self.atac_ccopies)
+            self.atac_ccopies_tensor_T = self.atac_ccopies_tensor.T
+            self.atac_bafs_tensor = torch.from_numpy(self.atac_bafs).clamp(
+                min=epsilon
+            )  # bin by clone
+            self.atac_bafs_tensor_T = self.atac_bafs_tensor.T  # clone by bin
         return

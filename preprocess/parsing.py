@@ -67,19 +67,22 @@ def parse_arguments(args=None):
         "--cr_dir",
         required=False,
         type=str,
-        help="output directory by cell-ranger, e.g., filtered_feature_bc_matrix/"
+        help="output directory by cell-ranger, e.g., filtered_feature_bc_matrix/",
     )
     parser.add_argument(
         "--atac_dir",
         required=False,
         type=str,
-        help="output directory by cellSNP-lite using s[c/n]ATAC-seq"
+        help="output directory by cellSNP-lite using s[c/n]ATAC-seq",
     )
     parser.add_argument(
         "--gex_dir",
         required=False,
         type=str,
-        help="output directory by cellSNP-lite using s[c/n]RNA-seq"
+        help="output directory by cellSNP-lite using s[c/n]RNA-seq",
+    )
+    parser.add_argument(
+        "--gene_bed", required=False, type=str, help="gene annotation bed file"
     )
 
     parser.add_argument(
@@ -89,6 +92,7 @@ def parse_arguments(args=None):
         type=str,
         help="output directory",
     )
+
     parser.add_argument(
         "--laplace",
         required=False,
@@ -118,6 +122,21 @@ def parse_arguments(args=None):
         help="Exclude segment with length less than seg_len",
     )
 
+    parser.add_argument(
+        "--min_gex_count",
+        required=False,
+        default=200,
+        type=float,
+        help="Adaptive binning over genes, min_gex_count",
+    )
+    parser.add_argument(
+        "--min_atac_count",
+        required=False,
+        default=200,
+        type=float,
+        help="Adaptive binning over genes, min_atac_count",
+    )
+
     args = parser.parse_args()
 
     atac_vcf = os.path.join(args.atac_dir, "cellSNP.base.vcf.gz")
@@ -131,7 +150,6 @@ def parse_arguments(args=None):
     raw_features = os.path.join(args.cr_dir, "features.tsv.gz")
     feature_mtx = os.path.join(args.cr_dir, "matrix.mtx.gz")
 
-
     # sanity check
     return {
         "sample": args.sample,
@@ -141,6 +159,7 @@ def parse_arguments(args=None):
         "tbed": args.tbed,
         "vcf": args.vcf,
         "hairs": args.hairs,
+        "gene_bed": args.gene_bed,
         "barcodes": args.barcodes,
         "atac_vcf": atac_vcf,
         "atac_dp": atac_dp,
@@ -153,4 +172,9 @@ def parse_arguments(args=None):
         "feature_mtx": feature_mtx,
         "outdir": args.outdir,
         "laplace": args.laplace,
+        "baf_eps": args.baf_eps,
+        "baf_tol": args.baf_tol,
+        "seg_len": args.seg_len,
+        "min_gex_count": args.min_gex_count,
+        "min_atac_count": args.min_atac_count,
     }

@@ -11,8 +11,8 @@ import subprocess
 from io import StringIO
 
 
-def get_ord2chr(ch):
-    return [None] + [f"{ch}{i}" for i in range(1, 23)] + [f"{ch}X", f"{ch}Y"]
+def get_ord2chr(ch="chr"):
+    return [f"{ch}{i}" for i in range(1, 23)] + [f"{ch}X", f"{ch}Y"]
 
 
 def get_chr2ord(ch):
@@ -44,6 +44,7 @@ def sort_chroms(chromosomes: list):
     ch = "chr" if str(chromosomes[0]).startswith("chr") else ""
     chr2ord = get_chr2ord(ch)
     return sorted(chromosomes, key=lambda x: chr2ord[x])
+
 
 def read_cn_profile(seg_ucn: str):
     """
@@ -119,7 +120,7 @@ def read_barcodes(bc_file: str):
 
 def read_VCF(vcf_file: str, has_phase=False):
     fields = "%CHROM\t%POS"
-    names = ["CHR", "POS"]
+    names = ["#CHR", "POS"]
     format_tags = []
     if has_phase:
         format_tags.extend(["%GT", "%PS"])
@@ -135,18 +136,20 @@ def read_VCF(vcf_file: str, has_phase=False):
         snps = snps[(snps["GT"] != ".") & (snps["PS"] != ".")]
         snps["GT"] = snps["GT"].apply(func=lambda v: v[0])  # USEREF
     assert not snps.duplicated().any(), f"{vcf_file} has duplicated rows"
-    assert not snps.duplicated(subset=["CHR", "POS"]).any(), (
+    assert not snps.duplicated(subset=["#CHR", "POS"]).any(), (
         f"{vcf_file} has duplicated rows"
     )
     return snps
 
+
 def read_VCF_cellsnp_err_header(vcf_file: str):
     """cellsnp-lite has issue with its header"""
     fields = "%CHROM\t%POS\t%INFO"
-    names = ["CHR", "POS", "INFO"]
+    names = ["#CHR", "POS", "INFO"]
     cmd = ["bcftools", "query", "-f", fields, vcf_file]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     snps = pd.read_csv(StringIO(result.stdout), sep="\t", header=None, names=names)
+
     def extract_info_field(info_str, key):
         for field in info_str.split(";"):
             if field.startswith(f"{key}="):
@@ -171,9 +174,9 @@ def get_chr_sizes(sz_file: str):
 def read_baf_file(baf_file: str):
     baf_df = pd.read_table(
         baf_file,
-        names=["CHR", "POS", "SAMPLE", "REF", "ALT"],
+        names=["#CHR", "POS", "SAMPLE", "REF", "ALT"],
         dtype={
-            "CHR": object,
+            "#CHR": object,
             "POS": np.uint32,
             "SAMPLE": object,
             "REF": np.uint32,
@@ -182,11 +185,12 @@ def read_baf_file(baf_file: str):
     )
     return baf_df
 
+
 def subset_baf(
     baf_df: pd.DataFrame, ch: str, start: int, end: int, is_last_block=False
 ):
     if ch != None:
-        baf_ch = baf_df[baf_df["CHR"] == ch]
+        baf_ch = baf_df[baf_df["#CHR"] == ch]
     else:
         baf_ch = baf_df
     if baf_ch.index.name == "POS":
@@ -198,6 +202,7 @@ def subset_baf(
     else:
         return baf_ch[(pos >= start) & (pos < end)]
 
+
 def read_seg_ucn_file(seg_ucn_file: str):
     segs_df = pd.read_table(seg_ucn_file, sep="\t")
     chs = sort_chroms(segs_df["#CHR"].unique().tolist())
@@ -205,16 +210,16 @@ def read_seg_ucn_file(seg_ucn_file: str):
     segs_df.sort_values(by=["#CHR", "START"], inplace=True, ignore_index=True)
 
     clones = [cname[3:] for cname in segs_df.columns if cname.startswith("cn_")]
-    # segs_df = segs_df.rename(columns={"#CHR": "CHR", "START": "start", "END": "end"})
     # segs_df.loc[:, "cn-state"] = segs_df.apply(
     #     func=lambda r: ";".join(r[f"cn_{c}"] for c in clones), axis=1
     # )
     # segs_df.loc[:, "seg-length"] = segs_df["end"] - segs_df["start"]
     # segs_df.loc[:, "seg-position"] = segs_df.apply(
-    #     func=lambda r: str(r["CHR"]) + "_" + str(r["start"]) + "_" + str(r["end"]),
+    #     func=lambda r: str(r["#CHR"]) + "_" + str(r["start"]) + "_" + str(r["end"]),
     #     axis=1,
     # )
     return segs_df, clones
+
 
 def read_bbc_ucn_file(bbc_ucn_file: str):
     bbcs_df = pd.read_table(bbc_ucn_file, sep="\t")
@@ -222,18 +227,18 @@ def read_bbc_ucn_file(bbc_ucn_file: str):
     bbcs_df["#CHR"] = pd.Categorical(bbcs_df["#CHR"], categories=chs, ordered=True)
     bbcs_df.sort_values(by=["#CHR", "START"], inplace=True, ignore_index=True)
     # clones = [cname[3:] for cname in bbcs_df.columns if cname.startswith("cn_")]
-    # bbcs_df = bbcs_df.rename(columns={"#CHR": "CHR", "START": "start", "END": "end"})
     # bbcs_df["cn-state"] = bbcs_df.apply(
     #     func=lambda r: ";".join(r[f"cn_{c}"] for c in clones), axis=1
     # )
     return bbcs_df
+
 
 def BBC_segmentation(bbcs_df: pd.DataFrame):
     assert len(bbcs_df["SAMPLE"].unique()) == 1, ">1 samples"
     # segment BBC by chromosome and cluster ID
     group_name_to_indices = bbcs_df.groupby(
         (
-            (bbcs_df["CHR"] != bbcs_df["CHR"].shift())
+            (bbcs_df["#CHR"] != bbcs_df["#CHR"].shift())
             | (bbcs_df["start"] != bbcs_df["end"].shift())
             | (bbcs_df["CLUSTER"] != bbcs_df["CLUSTER"].shift())
         ).cumsum(),
@@ -245,7 +250,7 @@ def BBC_segmentation(bbcs_df: pd.DataFrame):
         bbcs_df.loc[indices, "segment"] = group_name
 
     aggregation_rules = {
-        "CHR": "first",
+        "#CHR": "first",
         "SAMPLE": "first",
         "start": "min",
         "end": "max",
@@ -261,11 +266,14 @@ def BBC_segmentation(bbcs_df: pd.DataFrame):
     bbcs_df = bbcs_df.groupby(["segment", "SAMPLE"]).agg(aggregation_rules)
     return bbcs_df
 
+
 def read_verify_file(verify_file: str):
     def simp_type(t: str):
         return t if "tumor" in t.lower() else "normal"
+
     def simp_type2(t: str):
         return "tumor" if "tumor" in t.lower() else "normal"
+
     # cell_id cell_types final_type
     verify_df = pd.read_table(verify_file)
     verify_df = verify_df.rename(columns={"cell_id": "BARCODE"})
@@ -362,6 +370,7 @@ def read_hair_file(hair_file: str, nsnps: int):
     print(f"total processed {ctr} reads")
     return hairs
 
+
 def load_hairs(hair_file: str, smoothing=True, alpha=1):
     """
     load (nsnp, 4) hair tsv file, +alpha smoothing
@@ -373,6 +382,7 @@ def load_hairs(hair_file: str, smoothing=True, alpha=1):
     if smoothing:
         hairs[:, :] += alpha
     return hairs
+
 
 # path = None
 # files = os.listdir(path)

@@ -37,22 +37,22 @@ def allele_model_multiome(data: SC_Data, temp=None):
         dist.Gamma(chi_alpha, chi_rate).to_event(1),
     )
     std_gene = 1.0 / torch.sqrt(chi_gene.clamp(min=epsilon))
-    mu_gene = torch.zeros(K)
-    
+    mu_gene = torch.zeros(K)    
+    with pyro.plate("GEX", data.gex_num_bins):
+        w_g = pyro.sample(
+            "expose_w_gene",
+            dist.Normal(mu_gene, std_gene).to_event(1),
+        )
+
     chi_atac = pyro.sample(
         "expose_chi_atac",
         dist.Gamma(chi_alpha, chi_rate).to_event(1),
     )
     std_atac = 1.0 / torch.sqrt(chi_atac.clamp(min=epsilon))
     mu_atac = torch.zeros(K)
-
-    with pyro.plate("SEGMENT", data.num_bins):
-        w_g = pyro.sample(
-            "expose_w_gene",
-            dist.Normal(mu_gene, std_gene).to_event(1),
-        )
+    with pyro.plate("ATAC", data.atac_num_bins):
         w_p = pyro.sample(
-            "expose_w_atac",
+            "expose_w_peak",
             dist.Normal(mu_atac, std_atac).to_event(1),
         )
 
@@ -73,7 +73,7 @@ def allele_model_multiome(data: SC_Data, temp=None):
         )
 
         mu_d_n_gene = ((
-            Vindex(data.ccopies_tensor_T)[z_n]
+            Vindex(data.gex_ccopies_tensor_T)[z_n]
         ) * torch.exp(torch.matmul(psi_n, torch.transpose(w_g, 0, 1)).clamp(max=10))).clamp(min=epsilon)
         probs_gene = mu_d_n_gene / mu_d_n_gene.sum(dim=1, keepdim=True)
         pyro.sample(
@@ -85,7 +85,7 @@ def allele_model_multiome(data: SC_Data, temp=None):
         )
 
         mu_d_n_atac = ((
-            Vindex(data.ccopies_tensor_T)[z_n]
+            Vindex(data.atac_ccopies_tensor_T)[z_n]
         ) * torch.exp(torch.matmul(psi_n, torch.transpose(w_p, 0, 1)).clamp(max=10))).clamp(min=epsilon)
         probs_atac = mu_d_n_atac / mu_d_n_atac.sum(dim=1, keepdim=True)
         pyro.sample(
@@ -96,17 +96,23 @@ def allele_model_multiome(data: SC_Data, temp=None):
             obs=data.atac_tcounts_tensor_T,
         )
 
-        bafs_n = Vindex(data.bafs_tensor)[:, z_n]  # (ncells, nbins)
-        probs_n = torch.stack(
-            [1 - bafs_n, bafs_n], dim=-1
+        bafs_n_gex = Vindex(data.gex_bafs_tensor)[:, z_n]  # (ncells, nbins)
+        probs_n_gex = torch.stack(
+            [1 - bafs_n_gex, bafs_n_gex], dim=-1
         ).clamp(min=epsilon)  # (ncells, nbins, 2)
+
+        bafs_n_atac = Vindex(data.atac_bafs_tensor)[:, z_n]  # (ncells, nbins)
+        probs_n_atac = torch.stack(
+            [1 - bafs_n_atac, bafs_n_atac], dim=-1
+        ).clamp(min=epsilon)  # (ncells, nbins, 2)
+
         obs_s_gene = torch.stack(
             [data.gex_acounts_tensor_T, data.gex_bcounts_tensor_T], dim=-1
         )  # (ncells, nbins, 2)
         pyro.sample(
             "Y_gene",
             dist.Multinomial(
-                total_count=1, probs=probs_n, validate_args=False
+                total_count=1, probs=probs_n_gex, validate_args=False
             ).to_event(1),
             obs=obs_s_gene,
         )
@@ -117,9 +123,8 @@ def allele_model_multiome(data: SC_Data, temp=None):
         pyro.sample(
             "Y_atac",
             dist.Multinomial(
-                total_count=1, probs=probs_n, validate_args=False
+                total_count=1, probs=probs_n_atac, validate_args=False
             ).to_event(1),
             obs=obs_s_atac,
         )
 
-# def 

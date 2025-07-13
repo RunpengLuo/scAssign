@@ -6,12 +6,13 @@ from scipy.optimize import minimize
 from scipy.special import softmax
 
 
-def build_sitewise_transmat(bin_snps: pd.DataFrame, hairs: np.ndarray, 
-                            alpha=1, beta=1, norm=True, log=True):
+def build_sitewise_transmat(
+    bin_snps: pd.DataFrame, hairs: np.ndarray, alpha=1, beta=1, norm=True, log=True
+):
     """
     compute per-site transition probability, CM from population phasing and hair from read supports
     Each weighted by alpha and beta, respectively.
-    
+
     GT is haplotype 1 binary string from population phasing
     CM is absolute genetic distance
     """
@@ -47,7 +48,9 @@ def build_sitewise_transmat(bin_snps: pd.DataFrame, hairs: np.ndarray,
     sitewise_transmat[sitewise_transmat == 0] = 1  # Avoid division by zero
     # print(sitewise_transmat[:10])
     if norm:
-        sitewise_transmat = sitewise_transmat / sitewise_transmat.sum(axis=1, keepdims=True)
+        sitewise_transmat = sitewise_transmat / sitewise_transmat.sum(
+            axis=1, keepdims=True
+        )
     if log:
         sitewise_transmat = np.log(sitewise_transmat)
     return sitewise_transmat
@@ -155,7 +158,7 @@ def binom_hmm(
             nobs, log_emissions, log_transmat, log_startprob
         )
         log_gamma = compute_log_gamma(log_alpha, log_beta)
-        gamma[:, :] = np.exp(log_gamma) # phasing information
+        gamma[:, :] = np.exp(log_gamma)  # phasing information
 
         # log_xi = compute_log_xi(nobs, log_emissions, log_transmat, log_alpha, log_beta)
         # xi = np.exp(log_xi)
@@ -168,7 +171,7 @@ def binom_hmm(
             break
         p = new_p
     logp = np.log(p)
-    logp_ = np.log(1-p)
+    logp_ = np.log(1 - p)
     ll = np.dot(X, gamma[:, 0]) * logp + np.dot(Y, gamma[:, 0]) * logp_
     ll += np.dot(Y, gamma[:, 1]) * logp + np.dot(X, gamma[:, 1]) * logp_
     return p, gamma[:, 0], ll
@@ -223,11 +226,13 @@ def viterbi_decode(hairs: np.ndarray, emissions_beta: np.ndarray, eta=1.0, beta=
         path[t] = prev[path[t + 1], t + 1]
     return path
 
+
 def one_posterior(alpha: float, beta: float, log_aaf: float, log_baf: float):
     a = log_baf * beta + log_aaf * alpha
     b = log_aaf * beta + log_baf * alpha
     useref = softmax([a, b])[0]
     return useref
+
 
 def baf_posterior(refs: np.ndarray, alts: np.ndarray, log_aaf: float, log_baf: float):
     # compute posterior of phasing given mhBAF
@@ -237,6 +242,7 @@ def baf_posterior(refs: np.ndarray, alts: np.ndarray, log_aaf: float, log_baf: f
     e_arr[1] = log_aaf * refs + log_baf * alts
     useref_frac = softmax(e_arr, axis=0)[0, :]
     return useref_frac
+
 
 def revert_path(
     refs: np.ndarray, alts: np.ndarray, path: np.ndarray, log_aaf: float, log_baf: float

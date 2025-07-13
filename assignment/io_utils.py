@@ -8,13 +8,21 @@ from scipy import sparse
 def read_barcodes(prep_dir: str):
     return pd.read_csv(os.path.join(prep_dir, "Barcodes.tsv"), sep="\t")
 
-def read_copy_number_data(prep_dir: str, bin_level: str):
+def read_copy_number_data(prep_dir: str, bin_level: str, modality=""):
     assert bin_level in ["seg", "bbc"]
     assert os.path.isdir(prep_dir)
-    bin_file = os.path.join(prep_dir, f"Position.{bin_level}.tsv")
-    acopy_file = os.path.join(prep_dir, f"Acopy.{bin_level}.tsv")
-    bcopy_file = os.path.join(prep_dir, f"Bcopy.{bin_level}.tsv")
-    baf_file = os.path.join(prep_dir, f"BAF.{bin_level}.tsv")
+
+    if bin_level == "seg":
+        bin_file = os.path.join(prep_dir, f"{bin_level}/Position.{bin_level}.tsv")
+        acopy_file = os.path.join(prep_dir, f"{bin_level}/Acopy.{bin_level}.tsv")
+        bcopy_file = os.path.join(prep_dir, f"{bin_level}/Bcopy.{bin_level}.tsv")
+        baf_file = os.path.join(prep_dir, f"{bin_level}/BAF.{bin_level}.tsv")
+    else:
+        bin_file = os.path.join(prep_dir, f"{bin_level}/{modality}_Position.{bin_level}.tsv")
+        acopy_file = os.path.join(prep_dir, f"{bin_level}/{modality}_Acopy.{bin_level}.tsv")
+        bcopy_file = os.path.join(prep_dir, f"{bin_level}/{modality}_Bcopy.{bin_level}.tsv")
+        baf_file = os.path.join(prep_dir, f"{bin_level}/{modality}_BAF.{bin_level}.tsv")
+
     acopies = pd.read_table(acopy_file, sep="\t").to_numpy(dtype=np.int32)
     bcopies = pd.read_table(bcopy_file, sep="\t").to_numpy(dtype=np.int32)
     ccopies = acopies + bcopies
@@ -37,10 +45,10 @@ def read_single_cell_data(prep_dir: str, modality: str, bin_level: str):
     assert bin_level in ["seg", "bbc"]
     assert os.path.isdir(prep_dir)
 
-    Aallele_file = os.path.join(prep_dir, f"{modality}_Aallele.{bin_level}.npz")
-    Ballele_file = os.path.join(prep_dir, f"{modality}_Ballele.{bin_level}.npz")
-    Tallele_file = os.path.join(prep_dir, f"{modality}_Tallele.{bin_level}.npz")
-    nSNP_file = os.path.join(prep_dir, f"{modality}_nsnps.{bin_level}.npz")
+    Aallele_file = os.path.join(prep_dir, f"{bin_level}/{modality}_Aallele.{bin_level}.npz")
+    Ballele_file = os.path.join(prep_dir, f"{bin_level}/{modality}_Ballele.{bin_level}.npz")
+    Tallele_file = os.path.join(prep_dir, f"{bin_level}/{modality}_Tallele.{bin_level}.npz")
+    nSNP_file = os.path.join(prep_dir, f"{bin_level}/{modality}_nsnps.{bin_level}.npz")
 
     counts_Aallele: np.ndarray = sparse.load_npz(Aallele_file).toarray().astype(dtype=np.int32)
     counts_Ballele: np.ndarray = sparse.load_npz(Ballele_file).toarray().astype(dtype=np.int32)
@@ -91,3 +99,31 @@ def get_feature_cn_matrix(features: pd.DataFrame, clones: list, modality: str):
     else:
         feat_cn_mat = features.loc[features["feature_type"] == "Peaks", columns].to_numpy(dtype=np.int32)
     return feat_cn_mat
+
+def read_verify_file(verify_file: str):
+    def simp_type(t: str):
+        return t if "tumor" in t.lower() else "normal"
+    def simp_type2(t: str):
+        return "tumor" if "tumor" in t.lower() else "normal"
+    # cell_id cell_types final_type
+    verify_df = pd.read_table(verify_file)
+    verify_df = verify_df.rename(columns={"cell_id": "BARCODE"})
+    if "met_subcluster" in verify_df.columns.tolist():
+        print("use column met_subcluster as final_type")
+        verify_df["final_type"] = verify_df["met_subcluster"]
+
+    if "final_type" not in verify_df.columns.tolist():
+        assert "cell_types" in verify_df.columns.tolist(), (
+            "cell_types column does not exist"
+        )
+        print("use column cell_types as final_type")
+        verify_df["final_type"] = verify_df["cell_types"]
+    if "simp_type" not in verify_df.columns.tolist():
+        verify_df["simp_type"] = verify_df.apply(
+            func=lambda r: simp_type(r["final_type"]), axis=1
+        )
+    if "simp_type2" not in verify_df.columns.tolist():
+        verify_df["simp_type2"] = verify_df.apply(
+            func=lambda r: simp_type2(r["final_type"]), axis=1
+        )
+    return verify_df

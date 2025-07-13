@@ -3,10 +3,6 @@ import sys
 
 import numpy as np
 import pandas as pd
-from scipy.special import softmax
-from scipy.stats import binom
-from scipy.special import betaln, gammaln, logsumexp, psi
-from scipy.optimize import minimize
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -42,12 +38,13 @@ def phase_snps(
     snps = read_VCF(snp_file)
     snp_counts = read_baf_file(tbed_file)
     tumor_snps = pd.merge(
-        left=snps, right=snp_counts, on=["CHR", "POS"], sort=False, how="left"
+        left=snps, right=snp_counts, on=["#CHR", "POS"], sort=False, how="left"
     )
     assert np.all(~tumor_snps.REF.isna()) and (np.all(~tumor_snps.ALT.isna()))
     tumor_snps.loc[:, "POS"] -= 1  # convert to 0-based indexing
     tumor_snps["TOTAL"] = tumor_snps["ALT"] + tumor_snps["REF"]
-    tumor_snps["PHASE"] = np.nan
+    tumor_snps["PHASE"] = pd.NA
+    tumor_snps["PS"] = pd.NA
 
     hairs = None
     if mode.startswith("hmm"):
@@ -57,7 +54,7 @@ def phase_snps(
     for ch in segs["#CHR"].unique():
         segs_ch = segs[segs["#CHR"] == ch]
         num_segs_ch = len(segs_ch)
-        tumor_snps_ch = tumor_snps[tumor_snps["CHR"] == ch]
+        tumor_snps_ch = tumor_snps[tumor_snps["#CHR"] == ch]
         for si in range(num_segs_ch):
             seg = segs_ch.iloc[si]
             seg_s, seg_t = seg["START"], seg["END"]
@@ -84,9 +81,8 @@ def phase_snps(
                 log_baf = np.log(seg_baf)
                 phases = baf_posterior(refs, alts, log_aaf, log_baf)
             tumor_snps.loc[tsnps_idx, "PHASE"] = phases
-            print(
-                f"{ch}:{seg_s}-{seg_t}\t#SNPs={nobs_seg}\tBAF={round(seg_baf, 2)}"
-            )
+            tumor_snps.loc[tsnps_idx, "PS"] = seg_s
+            print(f"{ch}:{seg_s}-{seg_t}\t#SNPs={nobs_seg}\tBAF={round(seg_baf, 2)}")
 
     tumor_snps = tumor_snps[~tumor_snps["PHASE"].isna()]
     tumor_snps.loc[:, "POS"] += 1  # convert back to 1-based indexing
@@ -95,6 +91,6 @@ def phase_snps(
         sep="\t",
         header=True,
         index=False,
-        columns=["CHR", "POS", "REF", "ALT", "PHASE"],
+        columns=["#CHR", "POS", "REF", "ALT", "PHASE", "PS"],
     )
     return
