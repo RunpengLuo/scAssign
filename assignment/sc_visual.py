@@ -526,6 +526,7 @@ def plot_1d_scatter(
     assign_df: pd.DataFrame,  # (cell, clone)
     sz_file: str,
     out_file: str,
+    aggregated=True,
     modality=None,
     dec_colname="Decision",
 ):
@@ -548,6 +549,7 @@ def plot_1d_scatter(
         bbc = data.gex_bins
         bcounts = data.gex_bcounts
         tcounts = data.gex_tcounts
+    dec_names = sorted(assign_df[dec_colname].unique())
 
     ################
     # prepare bounderies
@@ -599,27 +601,6 @@ def plot_1d_scatter(
     )
 
     ################
-    # compute aggregated BAF per decision
-    dec_names = sorted(assign_df[dec_colname].unique())
-    dec2dec_counts = {}
-    for dec_name in dec_names:
-        dec_bc_ids = assign_df[assign_df[dec_colname] == dec_name].index.to_numpy()
-        dec2dec_counts[dec_name] = len(dec_bc_ids)
-        agg_bcounts = np.sum(bcounts[:, dec_bc_ids], axis=1)
-        agg_tcounts = np.sum(tcounts[:, dec_bc_ids], axis=1)
-        # per-block cell-aggregated BAF
-        bafs = np.divide(
-            agg_bcounts,
-            agg_tcounts,
-            out=np.full_like(agg_tcounts, fill_value=np.nan, dtype=np.float32),
-            where=agg_tcounts > 0,
-        )
-        bbc.loc[:, dec_name] = bafs
-
-    # filter any bin/decision nan entry
-    bbc = bbc.loc[~bbc.isna().any(axis=1), :]
-
-    ################
     # add expected copy-number for Decision
     if dec_colname == "Decision":
         exp_baf_lines = {}
@@ -638,6 +619,30 @@ def plot_1d_scatter(
                 bl_colors[dec_name].append((0, 0, 0, 1))
 
     ################
+    # per decision, compute single-cell BAF or aggregated BAF
+    bbc_positions = bbc["position"].to_numpy()
+    dec2dec_counts = {}
+    dec_bafs = {}
+    for dec_name in dec_names:
+        dec_bc_ids = assign_df[assign_df[dec_colname] == dec_name].index.to_numpy()
+        dec2dec_counts[dec_name] = len(dec_bc_ids)
+        if aggregated:
+            agg_bcounts = np.sum(bcounts[:, dec_bc_ids], axis=1)
+            agg_tcounts = np.sum(tcounts[:, dec_bc_ids], axis=1)
+            # per-block cell-aggregated BAF
+            bafs = np.divide(
+                agg_bcounts,
+                agg_tcounts,
+                out=np.full_like(agg_tcounts, fill_value=np.nan, dtype=np.float32),
+                where=agg_tcounts > 0,
+            )
+            dec_bafs[dec_name] = bafs.reshape(len(bafs), 1)
+        else:
+            baf_mat = _build_baf_matrix(bcounts, tcounts, dec_bc_ids, get_df=False)
+            baf_mat[baf_mat == -1] = np.nan
+            dec_bafs[dec_name] = baf_mat
+
+    ################
     # prepare platte and markers
     markersize = float(max(20, 4 - np.floor(len(bbc) / 500)))
     # markersize_centroid = 10
@@ -653,16 +658,21 @@ def plot_1d_scatter(
     pdf_fd = PdfPages(out_file)
     for dec_idx, dec_name in enumerate(dec_names):
         fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20,4))
-        ax.scatter(
-            bbc["position"],
-            bbc[dec_name],
-            s=markersize,
-            edgecolors="black",
-            linewidths=0.5,
-            alpha=0.8,
-            color=palette[dec_idx],
-            marker='o'  # ensure filled circle
-        )
+        bafs = dec_bafs[dec_name]
+        for ci in range(bafs.shape[1]):
+            cell_baf = bafs[:, ci]
+            cell_positions = bbc_positions[cell_baf != np.nan]
+            cell_baf = cell_baf[cell_baf != np.nan]
+            ax.scatter(
+                cell_positions,
+                cell_baf,
+                s=markersize,
+                edgecolors="black",
+                linewidths=0.5,
+                alpha=0.8,
+                color=palette[dec_idx],
+                marker='o'  # ensure filled circle
+            )
         ax.vlines(
             list(chr_offsets.values()),
             ymin=0,

@@ -2,8 +2,6 @@ import os
 import sys
 import time
 
-from io_utils import *
-
 import numpy as np
 import pandas as pd
 
@@ -11,6 +9,7 @@ import logging
 
 import torch
 import torch.nn.functional as F
+from io_utils import *
 
 
 class SC_Data:

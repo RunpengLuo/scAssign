@@ -16,7 +16,6 @@ import torch
 import torch.nn.functional as F
 
 from sc_data import SC_Data
-from sc_models import *
 
 def validate_model(data: SC_Data, model=None, validate=True, plot_model=True, out_dir=None):
     pyro.enable_validation(False)

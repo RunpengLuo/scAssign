@@ -7,10 +7,9 @@ import pandas as pd
 from parsing import parse_arguments
 
 from sc_data import SC_Data
-from sc_models import sc_model_GEX, sc_model_multiome
 from sc_runner import *
 from io_utils import read_verify_file
-from allele_model import allele_model_multiome
+from sc_model import allele_model_binom
 
 """
 ATAC_Aallele.seg.npz    ATAC_nsnps.seg.npz      BAF.bbc.tsv             Bcopy.seg.tsv           GEX_Tallele.seg.npz     Position.seg.tsv        peak_signals.npz
@@ -33,8 +32,10 @@ if __name__ == "__main__":
     seg_data = SC_Data(prep_dir, modality, bin_level)
     seg_data.transform_data()
 
-    # model = {"GEX": sc_model_GEX, "ATAC": None, "BOTH": sc_model_multiome}[mode]
-    model = allele_model_multiome
+    assert mode == "pure", f"other mode haven't implemented {mode}"
+
+    # separate normal and tumor cells via simple allele model
+    model = allele_model_binom
     validate_model(seg_data, model=model, out_dir=out_dir)
 
     rep_dir = os.path.join(out_dir, f"rep_1")

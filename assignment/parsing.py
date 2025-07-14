@@ -33,9 +33,12 @@ def parse_arguments(args=None):
         "--mode",
         required=False,
         type=str,
-        default=None,
+        choices=["pure", "het"],
+        default="pure",
         help="mode",
     )
+
+    # TODO tumor proportion file input for het mode
     parser.add_argument(
         "--level",
         required=True,
