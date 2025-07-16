@@ -74,5 +74,5 @@ def parse_arguments(args=None):
         "mode": args.mode,
         "modality": args.modality,
         "bin_level": args.level,
-        "min_posterior": args.min_posterior
+        "min_posterior": args.min_posterior,
     }

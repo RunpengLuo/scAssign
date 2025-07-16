@@ -13,9 +13,7 @@ from io_utils import *
 
 
 class SC_Data:
-    def __init__(
-        self, prep_dir: str, data_type: str, bin_level: str
-    ) -> None:
+    def __init__(self, prep_dir: str, data_type: str, bin_level: str) -> None:
         assert data_type in ["GEX", "ATAC", "BOTH"]
         assert bin_level in ["seg", "bbc"]
         assert os.path.isdir(prep_dir)
@@ -49,8 +47,8 @@ class SC_Data:
         ##################################################
         # scATACseq information allele-level, bin by cell
         if self.has_atac:
-            _, bins, acopies, bcopies, ccopies, bafs = (
-                read_copy_number_data(prep_dir, bin_level, "ATAC")
+            _, bins, acopies, bcopies, ccopies, bafs = read_copy_number_data(
+                prep_dir, bin_level, "ATAC"
             )
             self.atac_bins = bins
             self.atac_acopies = acopies
@@ -70,8 +68,8 @@ class SC_Data:
         ##################################################
         # scRNAseq information, allele-level, bin by cell
         if self.has_gex:
-            _, bins, acopies, bcopies, ccopies, bafs = (
-                read_copy_number_data(prep_dir, bin_level, "GEX")
+            _, bins, acopies, bcopies, ccopies, bafs = read_copy_number_data(
+                prep_dir, bin_level, "GEX"
             )
             self.gex_bins = bins
             self.gex_acopies = acopies

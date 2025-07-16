@@ -9,9 +9,9 @@ from utils import *
 from phase_snps import phase_snps
 from haplotag_vcf import haplotag_VCF
 from format_cn import format_cn_profile
-from binning import binning_gex, binning_atac
+from binning import binning_features
 from aggregation import aggregate_counts
-from format_features import format_feature_matrix
+from format_features import format_features, union_snp_features, format_feature_matrix
 
 if __name__ == "__main__":
     args = parse_arguments()
@@ -36,7 +36,9 @@ if __name__ == "__main__":
     cr_feature_file = args["raw_features"]
     cr_mtx_file = args["feature_mtx"]
 
-    gene_bed = args["gene_bed"]
+    # used to annotate gene location
+    # since cellranger features only record TSS site for genes
+    gene_ann_file = args["gene_bed"]
 
     laplace_alpha = args["laplace"]
     exclude_baf_eps = args["baf_eps"]
@@ -53,10 +55,12 @@ if __name__ == "__main__":
     tmp_dir = os.path.join(out_dir, "tmp")
     seg_dir = os.path.join(out_dir, "seg")
     bbc_dir = os.path.join(out_dir, "bbc")
+    fet_dir = os.path.join(out_dir, "feature")
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(tmp_dir, exist_ok=True)
     os.makedirs(seg_dir, exist_ok=True)
     os.makedirs(bbc_dir, exist_ok=True)
+    os.makedirs(fet_dir, exist_ok=True)
 
     tag_vcf = True
 
@@ -67,6 +71,9 @@ if __name__ == "__main__":
     proc_seg_acopy_file = os.path.join(seg_dir, "Acopy.seg.tsv")
     proc_seg_bcopy_file = os.path.join(seg_dir, "Bcopy.seg.tsv")
     proc_seg_cbaf_file = os.path.join(seg_dir, "BAF.seg.tsv")
+    # exclude_cns = ["1|1;2|2;2|1;4|2", "1|1;2|2;5|2;2|2"] #HT941
+    # exclude_cns = ["1|1;1|1;1|0"]
+    exclude_cns = []
     format_cn_profile(
         seg_ucn,
         bbc_ucn,
@@ -79,6 +86,7 @@ if __name__ == "__main__":
         exclude_baf_tol,
         exclude_seg_len,
         laplace_alpha,
+        exclude_cns
     )
 
     ##################################################
@@ -112,100 +120,63 @@ if __name__ == "__main__":
         haplotag_VCF(proc_seg_file, phase_file, vcf_file, tagged_vcf_file, tmp_dir)
 
     ##################################################
-    if has_atac:
-        print(f"perform scATAC-seq binning on segments")
-        proc_atac_peak_file = os.path.join(bbc_dir, "ATAC_Position.peak.tsv")
-        proc_atac_bin_file = os.path.join(bbc_dir, "ATAC_Position.bbc.tsv")
-        proc_atac_bin_acopy_file = os.path.join(bbc_dir, "ATAC_Acopy.bbc.tsv")
-        proc_atac_bin_bcopy_file = os.path.join(bbc_dir, "ATAC_Bcopy.bbc.tsv")
-        proc_atac_bin_cbaf_file = os.path.join(bbc_dir, "ATAC_BAF.bbc.tsv")
-        if not os.path.exists(proc_atac_bin_file):
-            binning_atac(
-                proc_seg_file,
-                proc_seg_acopy_file,
-                proc_seg_bcopy_file,
-                proc_seg_cbaf_file,
-                proc_seg_bed_file,
-                bvcf_atac,
-                proc_atac_peak_file,
-                proc_atac_bin_file,
-                proc_atac_bin_acopy_file,
-                proc_atac_bin_bcopy_file,
-                proc_atac_bin_cbaf_file,
-                tmp_dir,
-                min_atac_count,
-            )
+    print("extract copy-number related features")
+    proc_gene_bed_file = os.path.join(fet_dir, "genes.raw.bed")
+    proc_atac_bed_file = os.path.join(fet_dir, "peaks.raw.bed")
+    format_features(
+        proc_seg_file,
+        gene_ann_file,
+        cr_feature_file,
+        proc_gene_bed_file,
+        proc_atac_bed_file,
+        has_gex,
+        has_atac)
 
+    ##################################################
     if has_gex:
         print(f"perform scRNA-seq binning on segments")
-        proc_gex_gene_file = os.path.join(bbc_dir, "GEX_Position.gene.tsv")
+        proc_gene_ext_bed_file = os.path.join(fet_dir, "genes.ext.bed")
+        union_snp_features(
+            proc_seg_bed_file,
+            bvcf_gex,
+            proc_gene_bed_file,
+            proc_gene_ext_bed_file,
+            tmp_dir,
+            max_dist=5
+            )
+
+        proc_gex_id_file = os.path.join(bbc_dir, "GEX_ids.bbc.tsv")
         proc_gex_bin_file = os.path.join(bbc_dir, "GEX_Position.bbc.tsv")
         proc_gex_bin_acopy_file = os.path.join(bbc_dir, "GEX_Acopy.bbc.tsv")
         proc_gex_bin_bcopy_file = os.path.join(bbc_dir, "GEX_Bcopy.bbc.tsv")
         proc_gex_bin_cbaf_file = os.path.join(bbc_dir, "GEX_BAF.bbc.tsv")
-        if not os.path.exists(proc_gex_bin_file):
-            binning_gex(
+        if not os.path.exists(proc_gex_id_file):
+            binning_features(
                 proc_seg_file,
                 proc_seg_acopy_file,
                 proc_seg_bcopy_file,
                 proc_seg_cbaf_file,
                 bvcf_gex,
-                proc_seg_bed_file,
-                gene_bed,
-                proc_gex_gene_file,
+                proc_gene_ext_bed_file,
+                proc_gex_id_file,
                 proc_gex_bin_file,
                 proc_gex_bin_acopy_file,
                 proc_gex_bin_bcopy_file,
                 proc_gex_bin_cbaf_file,
-                tmp_dir,
-                min_gex_count,
+                min_dp_count=min_gex_count
             )
-
-    ##################################################
-    if has_atac:
-        print("aggregate SNP counts for scATAC-seq")
-        atac_bin_Aallele_file = os.path.join(bbc_dir, "ATAC_Aallele.bbc.npz")
-        atac_bin_Ballele_file = os.path.join(bbc_dir, "ATAC_Ballele.bbc.npz")
-        atac_bin_Tallele_file = os.path.join(bbc_dir, "ATAC_Tallele.bbc.npz")
-        atac_bin_nSNP_file = os.path.join(bbc_dir, "ATAC_nsnps.bbc.npz")
-        if not os.path.exists(atac_bin_nSNP_file):
-            aggregate_counts(
-                proc_atac_bin_file,
+        
+        print(f"aggregate total counts for scRNA-seq")
+        proc_gex_mat_file = os.path.join(bbc_dir, "GEX_total.bbc.npz")
+        if not os.path.exists(proc_gex_mat_file):
+            format_feature_matrix(
+                proc_gex_id_file,
                 barcode_file,
-                bvcf_atac,
-                dp_mtx_atac,
-                ad_mtx_atac,
-                phase_file,
-                "ATAC",
-                atac_bin_Aallele_file,
-                atac_bin_Ballele_file,
-                atac_bin_Tallele_file,
-                atac_bin_nSNP_file,
-                "PHASE",
+                cr_barcode_file,
+                cr_mtx_file,
+                proc_gex_mat_file
             )
-
-        atac_seg_Aallele_file = os.path.join(seg_dir, "ATAC_Aallele.seg.npz")
-        atac_seg_Ballele_file = os.path.join(seg_dir, "ATAC_Ballele.seg.npz")
-        atac_seg_Tallele_file = os.path.join(seg_dir, "ATAC_Tallele.seg.npz")
-        atac_seg_nSNP_file = os.path.join(seg_dir, "ATAC_nsnps.seg.npz")
-        if not os.path.exists(atac_seg_nSNP_file):
-            aggregate_counts(
-                proc_seg_file,
-                barcode_file,
-                bvcf_atac,
-                dp_mtx_atac,
-                ad_mtx_atac,
-                phase_file,
-                "ATAC",
-                atac_seg_Aallele_file,
-                atac_seg_Ballele_file,
-                atac_seg_Tallele_file,
-                atac_seg_nSNP_file,
-                "PHASE",
-            )
-
-    ##################################################
-    if has_gex:
+        
         print("aggregate SNP counts for scRNA-seq")
         gex_bin_Aallele_file = os.path.join(bbc_dir, "GEX_Aallele.bbc.npz")
         gex_bin_Ballele_file = os.path.join(bbc_dir, "GEX_Ballele.bbc.npz")
@@ -247,13 +218,87 @@ if __name__ == "__main__":
                 "PHASE",
             )
 
-    ##################################################
-    # print("process feature matrix")
-    # gex_mat_file = os.path.join(out_dir, "gene_expression.npz")
-    # atac_mat_file = os.path.join(out_dir, "peak_signals.npz")
-    # feature_file = os.path.join(out_dir, "features.tsv.gz")
-    # feature_bed_file = os.path.join(out_dir, "features.bed")
-    # if not os.path.exists(feature_file):
-    #     format_feature_matrix(proc_seg_file, barcode_file, cr_barcode_file,
-    #                         cr_feature_file, cr_mtx_file, gex_mat_file,
-    #                         atac_mat_file, feature_file, feature_bed_file, has_gex, has_atac)
+    if has_atac:
+        print(f"perform scATAC-seq binning on segments")
+        proc_atac_ext_bed_file = os.path.join(fet_dir, "peaks.ext.bed")
+        union_snp_features(
+            proc_seg_bed_file,
+            bvcf_atac,
+            proc_atac_bed_file,
+            proc_atac_ext_bed_file,
+            tmp_dir,
+            max_dist=2000
+            )
+
+        proc_atac_id_file = os.path.join(bbc_dir, "ATAC_ids.bbc.tsv")
+        proc_atac_bin_file = os.path.join(bbc_dir, "ATAC_Position.bbc.tsv")
+        proc_atac_bin_acopy_file = os.path.join(bbc_dir, "ATAC_Acopy.bbc.tsv")
+        proc_atac_bin_bcopy_file = os.path.join(bbc_dir, "ATAC_Bcopy.bbc.tsv")
+        proc_atac_bin_cbaf_file = os.path.join(bbc_dir, "ATAC_BAF.bbc.tsv")
+        if not os.path.exists(proc_atac_id_file):
+            binning_features(
+                proc_seg_file,
+                proc_seg_acopy_file,
+                proc_seg_bcopy_file,
+                proc_seg_cbaf_file,
+                bvcf_atac,
+                proc_atac_ext_bed_file,
+                proc_atac_id_file,
+                proc_atac_bin_file,
+                proc_atac_bin_acopy_file,
+                proc_atac_bin_bcopy_file,
+                proc_atac_bin_cbaf_file,
+                min_dp_count=min_atac_count
+            )
+        
+        print(f"aggregate total counts for scATAC-seq")
+        proc_atac_mat_file = os.path.join(bbc_dir, "ATAC_total.bbc.npz")
+        if not os.path.exists(proc_atac_mat_file):
+            format_feature_matrix(
+                proc_atac_id_file,
+                barcode_file,
+                cr_barcode_file,
+                cr_mtx_file,
+                proc_atac_mat_file
+            )
+        
+        print("aggregate SNP counts for scATAC-seq")
+        atac_bin_Aallele_file = os.path.join(bbc_dir, "ATAC_Aallele.bbc.npz")
+        atac_bin_Ballele_file = os.path.join(bbc_dir, "ATAC_Ballele.bbc.npz")
+        atac_bin_Tallele_file = os.path.join(bbc_dir, "ATAC_Tallele.bbc.npz")
+        atac_bin_nSNP_file = os.path.join(bbc_dir, "ATAC_nsnps.bbc.npz")
+        if not os.path.exists(atac_bin_nSNP_file):
+            aggregate_counts(
+                proc_atac_bin_file,
+                barcode_file,
+                bvcf_atac,
+                dp_mtx_atac,
+                ad_mtx_atac,
+                phase_file,
+                "ATAC",
+                atac_bin_Aallele_file,
+                atac_bin_Ballele_file,
+                atac_bin_Tallele_file,
+                atac_bin_nSNP_file,
+                "PHASE",
+            )
+
+        atac_seg_Aallele_file = os.path.join(seg_dir, "ATAC_Aallele.seg.npz")
+        atac_seg_Ballele_file = os.path.join(seg_dir, "ATAC_Ballele.seg.npz")
+        atac_seg_Tallele_file = os.path.join(seg_dir, "ATAC_Tallele.seg.npz")
+        atac_seg_nSNP_file = os.path.join(seg_dir, "ATAC_nsnps.seg.npz")
+        if not os.path.exists(atac_seg_nSNP_file):
+            aggregate_counts(
+                proc_seg_file,
+                barcode_file,
+                bvcf_atac,
+                dp_mtx_atac,
+                ad_mtx_atac,
+                phase_file,
+                "ATAC",
+                atac_seg_Aallele_file,
+                atac_seg_Ballele_file,
+                atac_seg_Tallele_file,
+                atac_seg_nSNP_file,
+                "PHASE",
+            )

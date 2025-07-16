@@ -210,9 +210,9 @@ def read_seg_ucn_file(seg_ucn_file: str):
     segs_df.sort_values(by=["#CHR", "START"], inplace=True, ignore_index=True)
 
     clones = [cname[3:] for cname in segs_df.columns if cname.startswith("cn_")]
-    # segs_df.loc[:, "cn-state"] = segs_df.apply(
-    #     func=lambda r: ";".join(r[f"cn_{c}"] for c in clones), axis=1
-    # )
+    segs_df.loc[:, "CNP"] = segs_df.apply(
+        func=lambda r: ";".join(r[f"cn_{c}"] for c in clones), axis=1
+    )
     # segs_df.loc[:, "seg-length"] = segs_df["end"] - segs_df["start"]
     # segs_df.loc[:, "seg-position"] = segs_df.apply(
     #     func=lambda r: str(r["#CHR"]) + "_" + str(r["start"]) + "_" + str(r["end"]),
@@ -227,7 +227,7 @@ def read_bbc_ucn_file(bbc_ucn_file: str):
     bbcs_df["#CHR"] = pd.Categorical(bbcs_df["#CHR"], categories=chs, ordered=True)
     bbcs_df.sort_values(by=["#CHR", "START"], inplace=True, ignore_index=True)
     # clones = [cname[3:] for cname in bbcs_df.columns if cname.startswith("cn_")]
-    # bbcs_df["cn-state"] = bbcs_df.apply(
+    # bbcs_df["CNP"] = bbcs_df.apply(
     #     func=lambda r: ";".join(r[f"cn_{c}"] for c in clones), axis=1
     # )
     return bbcs_df
@@ -261,7 +261,7 @@ def BBC_segmentation(bbcs_df: pd.DataFrame):
         "ALPHA": "sum",
         "BETA": "sum",
         "CLUSTER": "first",
-        "cn-state": "first",
+        "CNP": "first",
     }
     bbcs_df = bbcs_df.groupby(["segment", "SAMPLE"]).agg(aggregation_rules)
     return bbcs_df

@@ -48,7 +48,7 @@ def _prep_segs(
     seg2clen = []
     for _, seg in segs_df.iterrows():
         ch, seg_s, seg_t = seg["#CHR"], seg["START"], seg["END"]
-        cnstr: str = seg["cn-state"]
+        cnstr: str = seg["CNP"]
         cns = cnstr.split(";")
         seg_size = round((seg_t - seg_s) / 1e6)
         seg2ylabels.append(f"{ch}:{seg_size}M " + ";".join(cns[1:]))
@@ -657,7 +657,7 @@ def plot_1d_scatter(
 
     pdf_fd = PdfPages(out_file)
     for dec_idx, dec_name in enumerate(dec_names):
-        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20,4))
+        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 4))
         bafs = dec_bafs[dec_name]
         for ci in range(bafs.shape[1]):
             cell_baf = bafs[:, ci]
@@ -671,7 +671,7 @@ def plot_1d_scatter(
                 linewidths=0.5,
                 alpha=0.8,
                 color=palette[dec_idx],
-                marker='o'  # ensure filled circle
+                marker="o",  # ensure filled circle
             )
         ax.vlines(
             list(chr_offsets.values()),
@@ -693,7 +693,9 @@ def plot_1d_scatter(
         if dec_colname == "Decision":
             if len(exp_baf_lines[dec_name]) > 0:
                 ax.add_collection(
-                    LineCollection(exp_baf_lines[dec_name], linewidth=2, colors=bl_colors[dec_name])
+                    LineCollection(
+                        exp_baf_lines[dec_name], linewidth=2, colors=bl_colors[dec_name]
+                    )
                 )
         ax.grid(False)
         plt.setp(ax, xlim=(0, chr_end), xticks=xtick_chrs, xlabel="")

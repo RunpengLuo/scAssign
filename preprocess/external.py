@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 
-def filter_vcf2bed(in_vcf_file: str, seg_bed_file: str, out_file: str):
+def filter_vcf2bed(in_vcf_file: str, seg_bed_file: str, out_file: str, log_file: str):
     """
     only keep variants resides in seg_bed_file
     convert to BED format
@@ -17,6 +17,7 @@ def filter_vcf2bed(in_vcf_file: str, seg_bed_file: str, out_file: str):
     view_proc = subprocess.run(
         ["bcftools", "view", "-R", seg_bed_file, in_vcf_file],
         stdout=subprocess.PIPE,
+        stderr=open(log_file, "w"),
         check=True,
     )
     subprocess.run(
@@ -43,12 +44,14 @@ def run_bedtools_closest(
     in_bed_file: str,
     out_file: str,
     tmp_dir: str,
-    gid_col=4,
-    gname_col=7,
+    load_df=False,
+    usecols=[1, 3, 4, 5, 6, 7, 8],
+    names=["POS", "#CHR", "START", "END", "feature_id", "mat_index", "dist"],
 ):
     print("run bedtools closest")
     tmp_bed_file = os.path.join(tmp_dir, "variants.filtered.bed")
-    filter_vcf2bed(in_vcf_file, seg_bed_file, tmp_bed_file)
+    tmp_log_file = os.path.join(tmp_dir, "bcftools_filter.log")
+    filter_vcf2bed(in_vcf_file, seg_bed_file, tmp_bed_file, tmp_log_file)
 
     tmp_sbed_file = os.path.join(tmp_dir, "variants.sorted.bed")
     sort_bed(tmp_bed_file, tmp_sbed_file)
@@ -69,15 +72,6 @@ def run_bedtools_closest(
             "-t",
             "all",
         ],
-        stdout=subprocess.PIPE,
-        check=True,
-    )
-    gid_col += 3
-    gname_col += 3
-    format_str = "{print $1, $2, " + f"${gid_col}, ${gname_col}, " + "$(NF)}"
-    subprocess.run(
-        ["awk", "-F\t", format_str, "OFS=\t"],
-        input=dist_proc.stdout,
         stdout=open(out_file, "w"),
         check=True,
     )
@@ -86,13 +80,14 @@ def run_bedtools_closest(
     os.remove(tmp_sbed_file)
     os.remove(tmp_gbed_file)
 
-    out_df = pd.read_table(
-        out_file, sep="\t", names=["#CHR", "POS", "geneID", "geneType", "dist"]
-    )
-    return out_df
+    if load_df:
+        out_df = pd.read_table(out_file, sep="\t", header=None, usecols=usecols)
+        out_df.columns = names
+        return out_df
+    return None
 
 
-def run_bedtools_merge(
+def run_bedtools_merge_clamp(
     seg_bed_file: str,
     in_vcf_file: str,
     out_file: str,
@@ -100,12 +95,15 @@ def run_bedtools_merge(
     max_dist=500,
 ):
     """
-    form clamp of SNPs to simulate pseudo-peak
+    merge adjacent features based on <max_dist>
+    set max_dist=0 for overlapping features only
+    output
     report #CHR\tSTART\tEND\t#SNP
     """
     print("run bedtools merge")
     tmp_bed_file = os.path.join(tmp_dir, "variants.filtered.bed")
-    filter_vcf2bed(in_vcf_file, seg_bed_file, tmp_bed_file)
+    tmp_log_file = os.path.join(tmp_dir, "bcftools_filter.log")
+    filter_vcf2bed(in_vcf_file, seg_bed_file, tmp_bed_file, tmp_log_file)
 
     tmp_sbed_file = os.path.join(tmp_dir, "variants.sorted.bed")
     sort_bed(tmp_bed_file, tmp_sbed_file)
@@ -132,20 +130,85 @@ def run_bedtools_merge(
     return out_df
 
 
-# def run_bedtools_merge(in_bed: str, out_bed: str, max_dist=0):
-#     subprocess.run(
-#         [
-#             "bedtools",
-#             "merge",
-#             "-i",
-#             in_bed,
-#             "-d",
-#             str(max_dist),
-#             "-c",
-#             str(1),
-#             "-o",
-#             "count",
-#         ],
-#         stdout=open(out_bed, "w"),
-#         check=True,
-#     )
+def run_bedtools_cluster(
+    in_bed_file: str,
+    out_file: str,
+    tmp_dir: str,
+    max_dist=0,
+    load_df=False,
+    usecols=[1, 2, 3, 4, 5, 6, 7, 8],
+    names=["#CHR", "START", "END", "#SNP", "DP", "feature_id", "mat_index", "cluster_id"],
+):
+    """
+    assign features with cluster id based on <max_dist>
+    set max_dist=0 for overlapping features only
+    input
+        #CHR      START        END   #SNP DP  feature_id mat_index
+    """
+    print("run bedtools merge")
+    tmp_sbed_file = os.path.join(tmp_dir, "variants.sorted.bed")
+    sort_bed(in_bed_file, tmp_sbed_file)
+
+    subprocess.run(
+        [
+            "bedtools",
+            "cluster",
+            "-i",
+            tmp_sbed_file,
+            "-d",
+            str(max_dist),
+        ],
+        stdout=open(out_file, "w"),
+        check=True,
+    )
+    os.remove(tmp_sbed_file)
+
+    if load_df:
+        out_df = pd.read_table(out_file, sep="\t", header=None, usecols=usecols)
+        out_df.columns = names
+        return out_df
+    return None
+
+
+def run_bedtools_merge(
+    in_bed_file: str,
+    out_file: str,
+    tmp_dir: str,
+    max_dist=0,
+    load_df=False,
+    merge_cols=[4, 5],
+    usecols=[1, 2, 3, 4, 5],
+    names=["#CHR", "START", "END", "feature_id", "mat_index"],
+):
+    """
+    merge adjacent overlapping features
+    """
+    print("run bedtools merge")
+    tmp_sbed_file = os.path.join(tmp_dir, "variants.sorted.bed")
+    sort_bed(in_bed_file, tmp_sbed_file)
+
+    subprocess.run(
+        [
+            "bedtools",
+            "merge",
+            "-i",
+            tmp_sbed_file,
+            "-d",
+            str(max_dist),
+            "-c",
+            ",".join(str(c) for c in merge_cols),
+            "-delim",
+            ",",
+            "-o",
+            "collapse"
+        ],
+        stdout=open(out_file, "w"),
+        check=True,
+    )
+    os.remove(tmp_sbed_file)
+
+    if load_df:
+        out_df = pd.read_table(out_file, sep="\t", header=None, usecols=usecols)
+        out_df.columns = names
+        return out_df
+    return None

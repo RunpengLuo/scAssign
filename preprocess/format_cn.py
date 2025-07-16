@@ -15,6 +15,7 @@ def format_cn_profile(
     exclude_baf_tol=2e-2,
     exclude_seg_len=5e6,
     laplace_alpha=0.01,
+    exclude_cns=[]
 ):
     """
     return:
@@ -61,6 +62,7 @@ def format_cn_profile(
 
         for sidx in segs_ch.index:
             row = segs_ch.loc[sidx]
+            seg_cns = row["CNP"]
             seg_start = row["START"]
             seg_end = row["END"]
             seg_len = seg_end - seg_start
@@ -98,6 +100,8 @@ def format_cn_profile(
                 segs.loc[sidx, "exclude"] = 1
             if seg_len < exclude_seg_len:
                 segs.loc[sidx, "exclude"] = 1
+            if seg_cns in exclude_cns:
+                segs.loc[sidx, "exclude"] = 1
 
             if segs.loc[sidx, "exclude"] != 1:
                 segs.loc[sidx, "mhBAF"] = mhbaf
@@ -116,7 +120,7 @@ def format_cn_profile(
         index=False,
         header=True,
         sep="\t",
-        columns=["#CHR", "START", "END", "mhBAF", "BBC_mhBAF"],
+        columns=["#CHR", "START", "END", "CNP", "mhBAF", "BBC_mhBAF"],
     )
 
     segs.to_csv(
